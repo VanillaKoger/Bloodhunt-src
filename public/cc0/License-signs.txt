@@ -1,0 +1,9 @@
+Quaternius Cyberpunk Signs
+Source model: https://poly.pizza/m/rsZJjigt1X
+Pack: Cyberpunk Game Kit, https://quaternius.com/packs/cyberpunkgamekit.html
+Author: Quaternius
+License: CC0 1.0 Universal
+https://creativecommons.org/publicdomain/zero/1.0/
+
+Three small signs only (Sign_1, Sign_Small_1, Sign_Small_2), used as alley touches.
+The pack's letter faces had no embedded texture in the glTF, so the game tints those faces.
