@@ -1,7 +1,8 @@
 import { ATTRS, zeroAttrs } from './attributes'
-import { CLAW_TIERS, OFFLINE_CAP_SEC, OFFLINE_MIN_SEC, clawTier, grantXp } from './balance'
-import { CURRENCIES, DANGERS, DISTRICT_IDS, RITES, RITE_IDS, POWER_MAX, emptyPurse, type Purse } from './nights'
+import { CLAW_TIERS, LEVEL_CAP, OFFLINE_CAP_SEC, OFFLINE_FEEDS_PER_HOUR, OFFLINE_MIN_SEC, clawTier, grantXp } from './balance'
+import { CURRENCIES, DANGERS, DISTRICT_IDS, RITES, RITE_IDS, RITE_STEP, POWER_MAX, emptyPurse, type Purse } from './nights'
 import { COSMETICS, DEFAULT_LOOK, LOOK_SLOTS, WORK_IDS, WORK_MAX, type WorkId } from './haven'
+import { emptyTally, type NightTally } from './marks'
 import type { NightSave, OfflineReport, SaveData, Stat, WeaponRank } from './types'
 import { SKILLS, SLOTS, STATS } from './types'
 import { WEAPON_KINDS, isWeaponKind, type WeaponKind } from './weapons'
@@ -27,6 +28,8 @@ export function freshSave(now = Date.now()): SaveData {
     works: Object.fromEntries(WORK_IDS.map((id) => [id, 0])) as Record<WorkId, number>,
     wardrobe: [],
     wear: { ...DEFAULT_LOOK },
+    marks: {},
+    omenDay: '',
     weaponTier: 'teethling',
     powers: { bats: 0, drain: 0, dash: 0, nova: 0 },
     rites: { night: 0, pact: 0, frenzy: 0, scent: 0, thrall: 0 },
@@ -62,7 +65,7 @@ function sanitize(raw: unknown): SaveData | null {
   const num = (k: string, fallback: number) =>
     typeof raw[k] === 'number' && Number.isFinite(raw[k] as number) ? (raw[k] as number) : fallback
   base.blood = Math.max(0, num('blood', 0))
-  base.level = Math.max(1, Math.floor(num('level', 1)))
+  base.level = Math.max(1, Math.min(LEVEL_CAP, Math.floor(num('level', 1))))
   base.xp = Math.max(0, num('xp', 0))
   base.kills = Math.max(0, Math.floor(num('kills', 0)))
   base.bossKills = Math.max(0, Math.floor(num('bossKills', 0)))
@@ -101,6 +104,10 @@ function sanitize(raw: unknown): SaveData | null {
   if (isRecord(raw.rites)) for (const id of RITE_IDS) base.rites[id] = int(raw.rites[id], RITES[id].costs.length)
   if (isRecord(raw.danger)) for (const id of DISTRICT_IDS) base.danger[id] = int(raw.danger[id], DANGERS.length - 1)
   if (isRecord(raw.works)) for (const id of WORK_IDS) base.works[id] = int(raw.works[id], WORK_MAX)
+  if (isRecord(raw.marks)) {
+    for (const [key, v] of Object.entries(raw.marks)) if (/^(slums|mob)\.[0-4]\.[0-2]$/.test(key)) base.marks[key] = int(v, 99)
+  }
+  if (typeof raw.omenDay === 'string') base.omenDay = raw.omenDay.slice(0, 10)
   if (Array.isArray(raw.wardrobe)) {
     base.wardrobe = COSMETICS.filter((c) => (raw.wardrobe as unknown[]).includes(c.id)).map((c) => c.id)
   }
@@ -145,7 +152,22 @@ function readNight(raw: unknown): NightSave | null {
     elapsed: n(raw.elapsed),
     carried,
     kills: Math.floor(n(raw.kills)),
+    tally: readTally(raw.tally),
   }
+}
+
+function readTally(raw: unknown): NightTally {
+  const t = emptyTally()
+  if (!isRecord(raw)) return t
+  const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, v) : 0)
+  t.kills = Math.floor(n(raw.kills))
+  t.elites = Math.floor(n(raw.elites))
+  t.pods = Math.floor(n(raw.pods))
+  t.early = Math.floor(n(raw.early))
+  t.king = raw.king === true
+  t.frenzied = raw.frenzied === true
+  t.minHp = typeof raw.minHp === 'number' && Number.isFinite(raw.minHp) ? Math.max(0, Math.min(1, raw.minHp)) : 1
+  return t
 }
 
 export function loadSave(): SaveData {
@@ -186,7 +208,8 @@ export function takeOfflineGains(save: SaveData, now: number): OfflineReport | n
   }
   const capped = elapsed > OFFLINE_CAP_SEC
   const dt = Math.min(OFFLINE_CAP_SEC, elapsed)
-  const feeds = Math.floor(save.killRate * 0.5 * dt * (1 + save.rites.thrall * 0.25))
+  // A steady trickle, not a second hunt: a few feeds an hour, more with the Thrall Master rite.
+  const feeds = Math.floor((dt / 3600) * OFFLINE_FEEDS_PER_HOUR * (1 + save.rites.thrall * RITE_STEP.thrall))
   if (feeds < 1) {
     save.lastActiveAt = now
     return null
@@ -205,8 +228,10 @@ export function takeOfflineGains(save: SaveData, now: number): OfflineReport | n
     save.stacks[stat] += n
     gained[stat] = n
   })
-  const blood = feeds * 5
-  const xp = feeds * 3
+  // Thralls hunt the Slums at the deepest danger the hero has opened there.
+  const pay = DANGERS[save.danger.slums].reward
+  const blood = Math.round(feeds * 5 * pay)
+  const xp = Math.round(feeds * 3 * pay)
   save.blood += blood
   save.kills += feeds
   const levels = grantXp(save, xp)

@@ -28,11 +28,11 @@ Kenney Animated Characters / Mixamo / Quaternius character-anim libraries were s
 
 The game opens in the Haven, a walled courtyard of its own. Walk up to a station and press its prompt (or E / Enter):
 
-- **Night Gate** (north wall): pick a district (the Slums, or the Mob District once the Rat King has fallen) and a danger (I–V; extracting at one opens the next), and step through.
+- **Night Gate** (north wall): pick a district and a danger (I–V), and step through. Each danger shows its three marks; clearing them opens the next danger. The Mob District opens once the Slums marks at Danger III are cleared and the Rat King has fallen five times. Tonight's Omen, one extra objective a day, sits at the top.
 - **Range** (west wall): three practice dummies, bare, mailed (12 armor), and plated (30 armor). They never fall. Each shows a live DPS readout (the last 5 seconds), the total, and the top hit, and the reading starts over after a few seconds without a hit. Weapons, swings, and all four blood powers work on them, Blood Drain included.
 - **Blood Altar**: blood powers and rites (Vitae).
 - **Armory**: the gear and weapons menu.
-- **The works** (east and south sides): Bone Forge (+1.5% weapon damage a level), Blood Font (+2% max HP), Bile Still (+2% skill damage), Brass Coffer (+2% Blood from kills), and Ossuary (+0.4% crit). Each runs to level 30, and each level costs about 18% more than the last.
+- **The works** (east and south sides): Bone Forge (+1.5% weapon damage a level), Blood Font (+2% max HP), Bile Still (+2% skill damage), Brass Coffer (+2% Blood from kills), and Ossuary (+0.4% crit). Each runs to level 30, and the late levels cost far more than the early ones.
 - **Wardrobe**: cape dyes, eye glows, and strike trails. Buy one once, then wear it whenever you like.
 
 A night lasts 5:00 before dawn. Everything picked up is carried, and only banks by standing in a way out (a pillar of light; the HUD marker points to the nearest) until it fills. Falling, abandoning, or being caught by the sun keeps 25% of the haul (more with the Blood Pact rite). Killing quickly builds Frenzy, a Blood multiplier. Extracting or falling brings the hero back to the Haven.
@@ -50,6 +50,10 @@ And three materials, carried and banked the same way, for the works and the ward
 - **Brass**: thugs and enforcers.
 
 Elites drop double, and the Rat King and the Don drop a pile of each. Spending happens only at the Haven. A reload mid-night resumes it. Rules and numbers live in `src/game/nights.ts` (the night) and `src/game/haven.ts` (the yard, works, and wardrobe). `?enemies=1` still starts a Slums night at load for test runs.
+
+## The climb
+
+The climb to peak is paced for six to eight months of one sitting a day (about four nights). Every gain is small. New dangers and the Mob District open through marks: several runs at a danger plus two bonus objectives done in a single night, counted only when you get out. `PROGRESSION.md` has the curves and the timeline, and `npm run pacing` replays the climb on the current numbers.
 
 ## The Slums
 

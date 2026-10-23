@@ -714,9 +714,9 @@ const LOOK: Record<'hero' | 'hound' | 'walker' | 'thrall' | 'spitter' | 'boss' |
   spitter: { ...BASE, scale: 1.7, tint: 0xb4f0a8, pitch: 0, orb: true, orbColor: 0x9cff3a, eyes: 0xe0ff40, emissive: 0x1a3a10, emissiveIntensity: 0.26, glow: 0.74 },
   // The Rat King: a bloated plague-lord with a crown and a cape of rags.
   boss: { ...BASE, scale: 2.5, tint: 0xc8a4b4, pitch: -0.18, crown: true, cape: true, claws: true, chunky: true, eyes: 0xff2028, emissive: 0x3a1828, emissiveIntensity: 0.24, glow: 0.68 },
-  thug: { ...BASE, scale: 1.82, tint: 0xffffff, pitch: 0, fedora: true, shades: true, emissive: 0x12141c, emissiveIntensity: 0.15, glow: 0.48 },
-  enforcer: { ...BASE, scale: 2.15, tint: 0xfff4f2, pitch: 0, fedora: true, shades: true, emissive: 0x1a1014, emissiveIntensity: 0.15, glow: 0.46 },
-  don: { ...BASE, scale: 2.48, tint: 0xfff8f2, pitch: 0, fedora: true, shades: true, cape: true, emissive: 0x140e12, emissiveIntensity: 0.18, glow: 0.5 },
+  thug: { ...BASE, scale: 0.78, tint: 0xffffff, pitch: 0, fedora: true, shades: true, emissive: 0x12141c, emissiveIntensity: 0.15, glow: 0.48 },
+  enforcer: { ...BASE, scale: 0.9, tint: 0xfff4f2, pitch: 0, fedora: true, shades: true, emissive: 0x1a1014, emissiveIntensity: 0.15, glow: 0.46 },
+  don: { ...BASE, scale: 1.14, tint: 0xfff8f2, pitch: 0, fedora: true, shades: true, cape: true, emissive: 0x140e12, emissiveIntensity: 0.18, glow: 0.5 },
 }
 
 async function loadTexture(path: string): Promise<THREE.Texture> {

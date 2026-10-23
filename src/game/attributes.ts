@@ -53,14 +53,14 @@ export const ATTR_BASE: Record<Attr, number> = {
 
 /** What one point is worth. */
 export const PER_POINT = {
-  might: 1.5, // +melee damage, flat
-  mastery: 0.04, // +4% damage with a weapon of that type
-  vitality: 8, // +max HP
-  bloodflow: 0.6, // +HP regen per second
+  might: 0.6, // +melee damage, flat
+  mastery: 0.015, // +1.5% damage with a weapon of that type
+  vitality: 4, // +max HP
+  bloodflow: 0.25, // +HP regen per second
   swiftness: 0.03, // +3% move speed
-  fang: 0.005, // +0.5% lifesteal
-  hunger: 0.05, // +5% blood from kills
-  shade: 0.02, // -2% damage taken
+  fang: 0.002, // +0.2% lifesteal
+  hunger: 0.015, // +1.5% blood from kills
+  shade: 0.007, // -0.7% damage taken
 }
 
 export const POINTS_PER_LEVEL = 1

@@ -2,6 +2,7 @@ import type { Attr } from './attributes'
 import type { ClawTierId } from './balance'
 import type { DistrictId, Purse, RiteId } from './nights'
 import type { LookSlot, WorkId } from './haven'
+import type { NightTally } from './marks'
 import type { WeaponKind } from './weapons'
 
 export type Stat =
@@ -47,6 +48,7 @@ export interface NightSave {
   elapsed: number
   carried: Purse
   kills: number
+  tally?: NightTally
 }
 
 export interface SaveData {
@@ -73,6 +75,10 @@ export interface SaveData {
   /** Highest danger unlocked in each district, 0-based. */
   danger: Record<DistrictId, number>
   extracts: number
+  /** Progress on each mark, keyed district.danger.index: extraction counts, or 1 once done. */
+  marks: Record<string, number>
+  /** The local day whose Omen has been met. */
+  omenDay: string
   night: NightSave | null
   stacks: Record<Stat, number>
   /** Attribute points the player has spent. Base values live in attributes.ts. */

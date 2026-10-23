@@ -15,11 +15,12 @@ export const BASE_STAT: Record<Stat, number> = {
   vitality: 22,
 }
 
+// Each gear level is a small step. Fifty of them add up to the climb's backbone.
 const GEAR: Record<Slot, { stat: Stat; per: number; also: { stat: Stat; per: number } }> = {
-  weapon: { stat: 'strength', per: 4, also: { stat: 'vitality', per: 1 } },
-  cape: { stat: 'sorcery', per: 3, also: { stat: 'resistance', per: 2 } },
-  coat: { stat: 'fortitude', per: 4, also: { stat: 'vitality', per: 3 } },
-  boots: { stat: 'agility', per: 4, also: { stat: 'fortitude', per: 1 } },
+  weapon: { stat: 'strength', per: 2, also: { stat: 'vitality', per: 0.5 } },
+  cape: { stat: 'sorcery', per: 1.5, also: { stat: 'resistance', per: 1 } },
+  coat: { stat: 'fortitude', per: 2, also: { stat: 'vitality', per: 1.5 } },
+  boots: { stat: 'agility', per: 2, also: { stat: 'fortitude', per: 0.5 } },
 }
 
 export const GEAR_NAMES: Record<Slot, [number, string][]> = {
@@ -207,6 +208,9 @@ export const BOSS_MATERIALS: Record<'boss' | 'don', Partial<Record<Material, num
   don: { brass: 14, bone: 4 },
 }
 
+/** XP and Blood every enemy and boss gains per growth step. Small, so most of the pay comes from the danger itself. */
+export const REWARD_STEP = 0.02
+
 /** Per-level growth. Level 1 with zero clears leaves the base row untouched. */
 export interface Growth {
   role: string
@@ -225,13 +229,13 @@ export interface Growth {
 }
 
 export const GROWTH: Record<Foe, Growth> = {
-  hound: { role: 'skirmisher', armor: 0, hp: 0.07, dmg: 0.04, speed: 0.012, speedCap: 3.2, armorStep: 0.4, reward: 0.06, return: 6, cap: 6, capBoss: 6 },
-  walker: { role: 'bruiser', armor: 5, hp: 0.09, dmg: 0.055, speed: 0.008, speedCap: 1.7, armorStep: 0.8, reward: 0.05, return: 8, cap: 5, capBoss: 3 },
-  thrall: { role: 'hunter', armor: 5, hp: 0.08, dmg: 0.06, speed: 0.01, speedCap: 2.8, armorStep: 0.7, reward: 0.055, return: 9, cap: 4, capBoss: 2 },
-  spitter: { role: 'artillery', armor: 2, hp: 0.06, dmg: 0.07, speed: 0.006, speedCap: 1.8, armorStep: 0.35, reward: 0.07, return: 11, cap: 3, capBoss: 1 },
-  skeleton: { role: 'bruiser', armor: 4, hp: 0.09, dmg: 0.055, speed: 0.008, speedCap: 1.9, armorStep: 0.8, reward: 0.05, return: 7, cap: 4, capBoss: 2 },
-  thug: { role: 'muscle', armor: 5, hp: 0.07, dmg: 0.05, speed: 0.008, speedCap: 2.1, armorStep: 0.6, reward: 0.05, return: 8, cap: 4, capBoss: 3 },
-  enforcer: { role: 'wall', armor: 8, hp: 0.08, dmg: 0.05, speed: 0.006, speedCap: 1.7, armorStep: 0.9, reward: 0.05, return: 10, cap: 2, capBoss: 2 },
+  hound: { role: 'skirmisher', armor: 0, hp: 0.07, dmg: 0.04, speed: 0.012, speedCap: 3.2, armorStep: 0.4, reward: REWARD_STEP, return: 6, cap: 6, capBoss: 6 },
+  walker: { role: 'bruiser', armor: 5, hp: 0.09, dmg: 0.055, speed: 0.008, speedCap: 1.7, armorStep: 0.8, reward: REWARD_STEP, return: 8, cap: 5, capBoss: 3 },
+  thrall: { role: 'hunter', armor: 5, hp: 0.08, dmg: 0.06, speed: 0.01, speedCap: 2.8, armorStep: 0.7, reward: REWARD_STEP, return: 9, cap: 4, capBoss: 2 },
+  spitter: { role: 'artillery', armor: 2, hp: 0.06, dmg: 0.07, speed: 0.006, speedCap: 1.8, armorStep: 0.35, reward: REWARD_STEP, return: 11, cap: 3, capBoss: 1 },
+  skeleton: { role: 'bruiser', armor: 4, hp: 0.09, dmg: 0.055, speed: 0.008, speedCap: 1.9, armorStep: 0.8, reward: REWARD_STEP, return: 7, cap: 4, capBoss: 2 },
+  thug: { role: 'muscle', armor: 5, hp: 0.07, dmg: 0.05, speed: 0.008, speedCap: 2.1, armorStep: 0.6, reward: REWARD_STEP, return: 8, cap: 4, capBoss: 3 },
+  enforcer: { role: 'wall', armor: 8, hp: 0.08, dmg: 0.05, speed: 0.006, speedCap: 1.7, armorStep: 0.9, reward: REWARD_STEP, return: 10, cap: 2, capBoss: 2 },
 }
 
 /**
@@ -379,7 +383,11 @@ export const NODE = {
 
 export const OFFLINE_CAP_SEC = 8 * 3600
 export const OFFLINE_MIN_SEC = 90
+/** Feeds an hour the hero's thralls make while away, before the Thrall Master rite. */
+export const OFFLINE_FEEDS_PER_HOUR = 6
 export const MAX_GEAR = 50
+/** The hero stops gaining levels here. */
+export const LEVEL_CAP = 60
 export const ARENA_R = 7.45
 
 export function zeroStats(): Record<Stat, number> {
@@ -409,11 +417,11 @@ export interface ClawTier {
 }
 
 export const CLAW_TIERS: ClawTier[] = [
-  { id: 'teethling', label: 'Teethling', from: 1, color: 0x9a9ea6, css: '#b6bac2', power: 1, crit: 0, ranks: 3, perRank: 0.04, kills: 10 },
-  { id: 'kindred', label: 'Kindred', from: 10, color: 0x3fcf5e, css: '#5fe07c', power: 1.15, crit: 0.02, ranks: 5, perRank: 0.05, kills: 18 },
-  { id: 'awakened', label: 'Awakened', from: 20, color: 0x3a8cff, css: '#62a8ff', power: 1.42, crit: 0.04, ranks: 7, perRank: 0.06, kills: 28 },
-  { id: 'ascendent', label: 'Ascendent', from: 32, color: 0xa65cff, css: '#c08bff', power: 1.86, crit: 0.06, ranks: 9, perRank: 0.07, kills: 40 },
-  { id: 'immortal', label: 'Immortal', from: 44, color: 0xff2238, css: '#ff4d5e', power: 2.5, crit: 0.09, ranks: 12, perRank: 0.08, kills: 55 },
+  { id: 'teethling', label: 'Teethling', from: 1, color: 0x9a9ea6, css: '#b6bac2', power: 1, crit: 0, ranks: 3, perRank: 0.015, kills: 40 },
+  { id: 'kindred', label: 'Kindred', from: 10, color: 0x3fcf5e, css: '#5fe07c', power: 1.08, crit: 0.01, ranks: 5, perRank: 0.015, kills: 120 },
+  { id: 'awakened', label: 'Awakened', from: 20, color: 0x3a8cff, css: '#62a8ff', power: 1.2, crit: 0.02, ranks: 7, perRank: 0.016, kills: 220 },
+  { id: 'ascendent', label: 'Ascendent', from: 32, color: 0xa65cff, css: '#c08bff', power: 1.35, crit: 0.03, ranks: 9, perRank: 0.017, kills: 320 },
+  { id: 'immortal', label: 'Immortal', from: 44, color: 0xff2238, css: '#ff4d5e', power: 1.52, crit: 0.04, ranks: 12, perRank: 0.018, kills: 340 },
 ]
 
 export function clawTier(level: number): ClawTier {
@@ -481,13 +489,22 @@ export function gearName(slot: Slot, level: number): string {
   return name
 }
 
+/** Blood for the next gear level from `level`. Early levels come quickly; the last ten take nights each. */
 export function upgradeCost(level: number): number {
-  return Math.max(1, Math.round(10 * Math.pow(1.15, level)))
+  return Math.max(1, Math.round(GEAR_COST * Math.pow(level, GEAR_COST_POW)))
 }
 
+export const GEAR_COST = 11.5
+export const GEAR_COST_POW = 2.35
+
+/** XP for the next hero level from `level`. Grows a little faster than linear, so late levels take days. */
 export function xpNeed(level: number): number {
-  return 12 + level * 10
+  return Math.round(XP_BASE + XP_SCALE * Math.pow(level, XP_POW))
 }
+
+export const XP_BASE = 30
+export const XP_SCALE = 18
+export const XP_POW = 1.95
 
 export function gearFlat(save: SaveData): Record<Stat, number> {
   const out = zeroStats()
@@ -510,10 +527,14 @@ export function sheetStat(save: SaveData, stat: Stat): number {
   return BASE_STAT[stat] + save.stacks[stat] + gearFlat(save)[stat] + levelBonus(save, stat)
 }
 
-/** Combat contribution of feed stacks. Fast at first, then flattens so a night of thralls cannot erase the district. */
+/** Combat contribution of feed stacks: each feed adds a sliver, and the whole climb's worth tops out near 60. */
 export function stackPower(stacks: number): number {
-  return (90 * stacks) / (stacks + 70)
+  return (STACK_MAX * stacks) / (stacks + STACK_HALF)
 }
+
+export const STACK_MAX = 60
+/** Feeds of one stat for half of STACK_MAX. */
+export const STACK_HALF = 6000
 
 export function combatStat(save: SaveData, stat: Stat): number {
   return BASE_STAT[stat] + gearFlat(save)[stat] + levelBonus(save, stat) + stackPower(save.stacks[stat])
@@ -548,16 +569,16 @@ export function profile(save: SaveData): CombatProfile {
   const tier = heldTier(save)
   const power = tierPower(tier, weaponRank(save, save.weapon).rank)
   const prof = applyAttributes({
-    dmg: (10 + str * 0.55 + save.gear.weapon * 1.35) * w.dmg * power,
+    dmg: (10 + str * 0.55 + save.gear.weapon * 0.5) * w.dmg * power,
     crit: Math.min(0.45, 0.05 + agi * 0.0035 + w.crit + tier.crit),
     // Attack speed is the weapon's alone. Stats, gear, and ranks never touch it.
     interval: weaponInterval(save.weapon),
     speed: 3.2 + agi * 0.018 + save.gear.boots * 0.055,
-    hp: 96 + vit * 2.3 + save.gear.coat * 5,
-    armor: fort * 0.45 + save.gear.coat * 1.15,
+    hp: 96 + vit * 2.3 + save.gear.coat * 2.5,
+    armor: fort * 0.45 + save.gear.coat * 0.5,
     resist: res,
-    skill: 1 + sor * 0.018 + save.gear.cape * 0.055,
-    lifesteal: Math.min(0.2, 0.03 + vit * 0.0011),
+    skill: 1 + sor * 0.012 + save.gear.cape * 0.02,
+    lifesteal: Math.min(0.12, 0.03 + vit * 0.0006),
     regen: 1.1 + vit * 0.035,
     cdScale: 1 - Math.min(0.28, sor * 0.0014),
     bloodMult: 1,
@@ -598,13 +619,16 @@ export interface FightStats {
   blood: number
 }
 
-/** Stats at `steps` of growth. A night's steps come from its district, danger, and clock (see nights.ts). */
-export function enemyStats(kind: Exclude<EnemyKind, 'boss' | 'don'>, steps: number): FightStats {
+/**
+ * Stats at `steps` of growth. A night's steps come from its district, danger, and clock (see nights.ts).
+ * `bite` and `tough` are the night's own damage and HP multipliers on top of the steps (nightBite and nightTough in nights.ts).
+ */
+export function enemyStats(kind: Exclude<EnemyKind, 'boss' | 'don'>, steps: number, bite = 1, tough = 1): FightStats {
   const def = ENEMIES[kind]
   const g = GROWTH[kind]
   return {
-    hp: Math.round(def.hp * (1 + steps * g.hp)),
-    dmg: def.dmg * (1 + steps * g.dmg),
+    hp: Math.round(def.hp * (1 + steps * g.hp) * tough),
+    dmg: def.dmg * (1 + steps * g.dmg) * bite,
     speed: Math.min(g.speedCap, def.speed * (1 + steps * g.speed)),
     armor: g.armor + steps * g.armorStep,
     xp: Math.round(def.xp * (1 + steps * g.reward)),
@@ -618,16 +642,28 @@ export function enemyMitigate(raw: number, armor: number): number {
   return Math.max(1, raw * (1 - armor / (armor + 40)))
 }
 
-/** Rat King armor. Zero on the first summon, then +3 for each clear already banked. */
+/** Rat King armor. Zero on the first summon, then +2 for each of his first ten falls. */
 export function kingArmor(kills: number): number {
-  return Math.max(0, kills) * 3
+  return Math.min(10, Math.max(0, kills)) * 2
 }
 
+/** A boss's armor on a night: his falls, plus the night's danger steps like the trash. */
+export function bossArmor(kills: number, steps: number): number {
+  return kingArmor(kills) + steps * 0.6
+}
+
+/** A boss grows a little each time he falls, for his first twenty falls. The danger does the rest. */
+const BOSS_GROWTH_KILLS = 20
+
 export function grantXp(save: SaveData, amount: number): number {
+  if (save.level >= LEVEL_CAP) {
+    save.xp = 0
+    return 0
+  }
   save.xp += amount
   let gained = 0
   let guard = 0
-  while (save.xp >= xpNeed(save.level) && guard++ < 60) {
+  while (save.level < LEVEL_CAP && save.xp >= xpNeed(save.level) && guard++ < 60) {
     save.xp -= xpNeed(save.level)
     save.level += 1
     gained++
@@ -644,48 +680,53 @@ export interface BossSheet {
   blood: number
 }
 
-/** A night's danger steps on top of a boss's own formula. */
-function atSteps(bp: BossSheet, steps: number): BossSheet {
+/** A night's danger steps (and bite) on top of a boss's own formula. */
+function atSteps(bp: BossSheet, steps: number, bite: number, tough: number): BossSheet {
   return {
     ...bp,
-    hp: Math.round(bp.hp * (1 + steps * 0.06)),
-    dmg: bp.dmg * (1 + steps * 0.04),
-    pound: bp.pound * (1 + steps * 0.04),
-    xp: Math.round(bp.xp * (1 + steps * 0.05)),
-    blood: Math.round(bp.blood * (1 + steps * 0.05)),
+    hp: Math.round(bp.hp * (1 + steps * 0.06) * tough),
+    dmg: bp.dmg * (1 + steps * 0.04) * bite,
+    pound: bp.pound * (1 + steps * 0.04) * bite,
+    xp: Math.round(bp.xp * (1 + steps * REWARD_STEP)),
+    blood: Math.round(bp.blood * (1 + steps * REWARD_STEP)),
   }
 }
 
-export function bossBlueprint(save: SaveData, steps = 0): BossSheet {
+
+export function bossBlueprint(save: SaveData, steps = 0, bite = 1, tough = 1): BossSheet {
   const str = combatStat(save, 'strength')
-  const n = save.bossKills
+  const n = Math.min(BOSS_GROWTH_KILLS, save.bossKills)
   return atSteps(
     {
-      hp: Math.round((460 + str * 5.5) * Math.pow(1.18, n)),
-      dmg: 11 + n * 2,
-      pound: 16 + n * 3,
+      hp: Math.round((460 + str * 5.5) * (1 + n * 0.03)),
+      dmg: 11 + n * 0.5,
+      pound: 16 + n * 0.8,
       speed: 1.5,
       xp: 48,
       blood: 200,
     },
     steps,
+    bite,
+    tough,
   )
 }
 
 /** Next district boss. Separate from the Rat King so Slums scaling stays put. */
-export function donBlueprint(save: SaveData, steps = 0): BossSheet {
+export function donBlueprint(save: SaveData, steps = 0, bite = 1, tough = 1): BossSheet {
   const str = combatStat(save, 'strength')
-  const n = save.donKills
+  const n = Math.min(BOSS_GROWTH_KILLS, save.donKills)
   return atSteps(
     {
-      hp: Math.round((680 + str * 6.2) * Math.pow(1.18, n)),
-      dmg: 14 + n * 2,
-      pound: 20 + n * 3,
+      hp: Math.round((680 + str * 6.2) * (1 + n * 0.03)),
+      dmg: 14 + n * 0.5,
+      pound: 20 + n * 0.8,
       speed: 1.42,
       xp: 62,
       blood: 260,
     },
     steps,
+    bite,
+    tough,
   )
 }
 

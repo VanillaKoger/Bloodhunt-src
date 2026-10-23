@@ -6,16 +6,19 @@ Steps = `district steps + danger steps + minutes into the night × 0.9`
 
 | | Danger I | II | III | IV | V |
 | --- | --- | --- | --- | --- | --- |
-| Danger steps | 0 | 4 | 9 | 15 | 22 |
-| Blood multiplier | ×1 | ×1.35 | ×1.8 | ×2.4 | ×3.2 |
-| Elite chance | 6% | 9% | 12% | 15% | 18% |
+| Danger steps | 0 | 10 | 24 | 42 | 64 |
+| Bite (damage ×) | ×1 | ×1.35 | ×1.9 | ×2.7 | ×3.8 |
+| Tough (HP ×) | ×1 | ×1.2 | ×1.5 | ×1.9 | ×2.4 |
+| Blood multiplier | ×1 | ×1.3 | ×1.7 | ×2.2 | ×2.8 |
+| Elite chance | 5% | 6% | 7% | 8% | 9% |
+| Material drops | ×1 | ×1.3 | ×1.6 | ×2 | ×2.5 |
 
-The Slums add 0 steps and pay ×1. The Mob District adds 3 steps and pays ×1.25 on top. Elites have ×2.4 HP, ×1.3 damage, triple Blood, and drop Ichor. The Rat King and the Don keep their own formulas below, scaled by the same steps (+6% HP, +4% damage and pound, +5% XP and Blood per step).
+The Slums add 0 steps. The Mob District adds 22 steps, ×1.4 bite, ×1.25 tough, and ×1.35 Blood on top, so its first danger sits near the Slums at III. Elites have ×2.4 HP, ×1.3 damage, triple Blood, always drop their material (doubled), and drop Ichor. The Rat King and the Don keep their own formulas below, scaled by the same steps (+6% HP, +4% damage and pound, +2% XP and Blood per step) and by the night's bite and tough. See `PROGRESSION.md` for how the dangers open.
 
 The tables below are at 0 steps (the old "level 1, no clears" row) and use the same growth per step.
 
-- HP = round(base HP × (1 + steps × HP growth))
-- Damage = base damage × (1 + steps × damage growth)
+- HP = round(base HP × (1 + steps × HP growth) × tough)
+- Damage = base damage × (1 + steps × damage growth) × bite
 - Speed = min(speed cap, base speed × (1 + steps × speed growth))
 - Armor = base armor + steps × armor step
 - XP and Blood = round(base × (1 + steps × reward growth))
@@ -40,44 +43,44 @@ The miasma is the only ranged one: it holds off at range and spits bile bolts, a
 
 | Creature | HP | Damage | Speed | Speed cap | Armor step | Reward |
 | --- | --- | --- | --- | --- | --- | --- |
-| Plague Hound | 7% | 4% | 1.2% | 3.20 | +0.40 | 6% |
-| Plague Walker | 9% | 5.5% | 0.8% | 1.70 | +0.80 | 5% |
-| Feral Thrall | 8% | 6% | 1% | 2.80 | +0.70 | 5.5% |
-| Miasma | 6% | 7% | 0.6% | 1.80 | +0.35 | 7% |
-| Skeleton | 9% | 5.5% | 0.8% | 1.90 | +0.80 | 5% |
-| Mob Thug | 7% | 5% | 0.8% | 2.10 | +0.60 | 5% |
-| Enforcer | 8% | 5% | 0.6% | 1.70 | +0.90 | 5% |
+| Plague Hound | 7% | 4% | 1.2% | 3.20 | +0.40 | 2% |
+| Plague Walker | 9% | 5.5% | 0.8% | 1.70 | +0.80 | 2% |
+| Feral Thrall | 8% | 6% | 1% | 2.80 | +0.70 | 2% |
+| Miasma | 6% | 7% | 0.6% | 1.80 | +0.35 | 2% |
+| Skeleton | 9% | 5.5% | 0.8% | 1.90 | +0.80 | 2% |
+| Mob Thug | 7% | 5% | 0.8% | 2.10 | +0.60 | 2% |
+| Enforcer | 8% | 5% | 0.6% | 1.70 | +0.90 | 2% |
 
 Hounds stay the fragile pack and gain speed first. Walkers and skeletons are the HP walls. Thralls hit hardest for their size. The miasma scales its bolts. Reward growth is the same number for XP and Blood.
 
-Worked example, Danger III at the start of a Slums night (steps = 9):
+Worked example, a Slums night at Danger III (steps = 24, bite ×1.9, tough ×1.5):
 
 | Creature | HP | Damage | Speed | Armor | XP | Blood |
 | --- | --- | --- | --- | --- | --- | --- |
-| Plague Hound | 42 | 8.16 | 2.88 | 3.6 | 6 | 6 |
-| Plague Walker | 127 | 16.45 | 1.29 | 12.2 | 10 | 10 |
-| Feral Thrall | 100 | 20.02 | 2.29 | 11.3 | 12 | 12 |
-| Miasma | 52 | 13.04 | 1.48 | 5.15 | 11 | 10 |
-| Skeleton | 87 | 13.46 | 1.45 | 11.2 | 9 | 9 |
-| Mob Thug | 124 | 20.30 | 1.69 | 10.4 | 13 | 12 |
-| Enforcer | 193 | 26.10 | 1.35 | 16.1 | 17 | 16 |
+| Plague Hound | 105 | 22.34 | 3.20 | 9.6 | 6 | 6 |
+| Plague Walker | 332 | 48.49 | 1.43 | 24.2 | 10 | 10 |
+| Feral Thrall | 254 | 60.27 | 2.60 | 21.8 | 12 | 12 |
+| Miasma | 124 | 40.74 | 1.60 | 10.4 | 10 | 9 |
+| Skeleton | 228 | 39.67 | 1.61 | 23.2 | 9 | 9 |
+| Mob Thug | 306 | 58.52 | 1.88 | 19.4 | 13 | 12 |
+| Enforcer | 491 | 75.24 | 1.46 | 29.6 | 18 | 16 |
 
 ## Rat King
 
-His HP, damage, pound, speed, XP, and Blood stay on the old formula. Armor is the only new king stat, and the first summon is still 0.
+n = his falls so far, counted up to 20. On top of these, the night's steps, bite, and tough apply.
 
-- HP = round((460 + Strength × 5.5) × 1.18 ^ bossKills)
-- Damage = 11 + bossKills × 2
-- Pound = 16 + bossKills × 3
+- HP = round((460 + Strength × 5.5) × (1 + n × 0.03))
+- Damage = 11 + n × 0.5
+- Pound = 16 + n × 0.8
 - Speed = 1.5
 - XP = 48
 - Blood = 200
-- Armor = bossKills × 3
+- Armor = 2 for each of his first ten falls, plus 0.6 per night step
 - Returns 75 seconds after he falls, and the kill still grants +2 to every stat
 
-A clear does not raise his Blood or XP. It does add half a step to every trash kind.
+The Don runs the same way from 680 + Strength × 6.2 HP, 14 damage, and 20 pound.
 
-He is a bloated plague walker at boss size, with a crown, a cape of rags, and claws. At 60% HP he calls two plague hounds from the rim of his ring. On top of his Blood, Ichor, and Vitae he drops 10 Bile, 6 Bone, and 4 Brass. The Don drops 14 Brass and 4 Bone.
+He is a bloated plague walker at boss size, with a crown, a cape of rags, and claws. At 60% HP he calls two plague hounds from the rim of his ring. On top of his Blood, Ichor, and Vitae he drops 10 Bile, 6 Bone, and 4 Brass (times the danger's material multiplier). The Don drops 14 Brass and 4 Bone.
 
 ## Where they appear
 

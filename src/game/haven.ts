@@ -63,21 +63,21 @@ export interface WorkDef {
   blurb: string
   /** Effect text at a level. */
   effect: (level: number) => string
-  /** Cost of level 1. Later levels grow by WORK_GROWTH each. */
+  /** Cost of level 1. Later levels grow as (level + 1) ^ WORK_POW. */
   base: Partial<Purse>
   max: number
 }
 
 export const WORK_MAX = 30
-export const WORK_GROWTH = 1.18
+export const WORK_POW = 1.6
 
 /** Bonus per level of each work. */
 export const WORK_STEP: Record<WorkId, number> = {
-  forge: 0.015,
-  font: 0.02,
-  still: 0.02,
-  locker: 0.02,
-  ossuary: 0.004,
+  forge: 0.01,
+  font: 0.015,
+  still: 0.015,
+  locker: 0.015,
+  ossuary: 0.002,
 }
 
 const pct = (v: number, digits = 0) => `${(v * 100).toFixed(digits)}%`
@@ -95,7 +95,7 @@ export const WORKS: Record<WorkId, WorkDef> = {
     id: 'font',
     label: 'Blood Font',
     blurb: 'Bile cut with blood, drunk before the gate.',
-    effect: (l) => `+${pct(l * WORK_STEP.font)} max HP`,
+    effect: (l) => `+${pct(l * WORK_STEP.font, 1)} max HP`,
     base: { bile: 4, blood: 60 },
     max: WORK_MAX,
   },
@@ -103,7 +103,7 @@ export const WORKS: Record<WorkId, WorkDef> = {
     id: 'still',
     label: 'Bile Still',
     blurb: 'Distils the plague into the blood powers.',
-    effect: (l) => `+${pct(l * WORK_STEP.still)} skill damage`,
+    effect: (l) => `+${pct(l * WORK_STEP.still, 1)} skill damage`,
     base: { bile: 3, bone: 3 },
     max: WORK_MAX,
   },
@@ -111,7 +111,7 @@ export const WORKS: Record<WorkId, WorkDef> = {
     id: 'locker',
     label: 'Brass Coffer',
     blurb: 'Deeper pockets for the night\'s Blood.',
-    effect: (l) => `+${pct(l * WORK_STEP.locker)} Blood from kills`,
+    effect: (l) => `+${pct(l * WORK_STEP.locker, 1)} Blood from kills`,
     base: { brass: 3, bile: 2 },
     max: WORK_MAX,
   },
@@ -129,7 +129,7 @@ export const WORKS: Record<WorkId, WorkDef> = {
 export function workCost(id: WorkId, level: number): Partial<Purse> {
   const out: Partial<Purse> = {}
   for (const [k, v] of Object.entries(WORKS[id].base) as [Currency, number][]) {
-    out[k] = Math.round(v * Math.pow(WORK_GROWTH, level))
+    out[k] = Math.round(v * Math.pow(level + 1, WORK_POW))
   }
   return out
 }

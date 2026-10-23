@@ -5,6 +5,7 @@ import {
   ENEMIES,
   MATERIAL_LABEL,
   FEED_COLOR,
+  LEVEL_CAP,
   MAX_GEAR,
   NODE,
   SKILL_META,
@@ -25,7 +26,7 @@ import {
   feedWeapon,
   gearName,
   heldTier,
-  kingArmor,
+  bossArmor,
   nextHeldTier,
   rankKills,
   tierPower,
@@ -92,6 +93,9 @@ import {
   frenzyCap,
   keepShare,
   nightLength,
+  matDrop,
+  nightBite,
+  nightTough,
   nightReward,
   nightSteps,
   powerCost,
@@ -125,6 +129,24 @@ import {
   type WorkId,
 } from './haven'
 import { buildYard, type YardHandle } from './yard'
+import {
+  MARKS,
+  SWIFT_SECONDS,
+  districtGate,
+  districtOpen,
+  emptyTally,
+  markDone,
+  markHave,
+  markReward,
+  markText,
+  marksCleared,
+  marksTotal,
+  omenCounts,
+  omenFor,
+  scoreMarks,
+  tallyMeets,
+  type NightTally,
+} from './marks'
 import { createStage, makeDrift, qualityLow, type Stage } from './polish'
 import { DISTRICT_OPEN, FOG_COLOR, MOB_ARRIVE, MOB_GATE, MOB_Z, NORTH_ALLEY_SHIFT, SLUM_GATE, SLUM_RETURN, buildWorld, inSlums, nearestSlum, setNodeVisual, type WorldHandle } from './world'
 
@@ -236,6 +258,10 @@ interface NightRun {
   dawn: boolean
   /** Set once the night has ended and its summary is up. */
   over: boolean
+  /** What the night has done toward the marks and the Omen. */
+  tally: NightTally
+  /** Marks already called out this night. */
+  said: string[]
 }
 
 interface Beacon {
@@ -1809,7 +1835,7 @@ export class Game {
     const night = this.night
     this.hud.setPurse(night ? night.carried : bankedPurse(this.save), !!night)
     this.hud.setInteract(this.station && this.mode === 'play' ? `${this.station.verb} · ${this.station.label}` : null)
-    this.hud.setLevel(this.save.level, this.save.xp / xpNeed(this.save.level))
+    this.hud.setLevel(this.save.level, this.save.level >= LEVEL_CAP ? 1 : this.save.xp / xpNeed(this.save.level))
     for (const id of SKILLS) this.hud.setSkill(id, this.cooldowns[id], this.cdMax[id])
     const boss = this.localBoss()
     this.hud.setBoss(!!boss, boss ? boss.hp / boss.maxHp : 0, boss?.kind === 'don' ? 'THE DON' : 'RAT KING')
@@ -1945,6 +1971,7 @@ export class Game {
     const prof = profile(this.save)
     const amount = Math.max(1, mitigate(raw, prof.armor, prof.resist, fromBoss) * prof.guard)
     this.hero.hp -= amount
+    if (this.hunting()) this.night!.tally.minHp = Math.min(this.night!.tally.minHp, Math.max(0, this.hero.hp) / this.hero.maxHp)
     this.iframe = 0.42
     this.shake = Math.max(this.shake, fromBoss ? 0.28 : 0.12)
     this.sfx.play('hurt')
@@ -1967,7 +1994,7 @@ export class Game {
     this.noteFrenzy()
     if (e.kind === 'boss' || e.kind === 'don') {
       const don = e.kind === 'don'
-      const bp = don ? donBlueprint(this.save, this.steps()) : bossBlueprint(this.save, this.steps())
+      const bp = don ? donBlueprint(this.save, this.steps(), this.bite(), this.tough()) : bossBlueprint(this.save, this.steps(), this.bite(), this.tough())
       const blood = Math.round(bp.blood * profile(this.save).bloodMult * this.nightPay() * this.frenzyMult())
       const loot = bossLoot(don ? 'don' : 'boss', this.night?.danger ?? 0)
       if (don) {
@@ -1982,7 +2009,12 @@ export class Game {
         this.world.gateGlow.color.setHex(0xff4ad8)
       }
       this.save.kills += 1
-      if (this.night) this.night.kills += 1
+      if (this.night) {
+        this.night.kills += 1
+        // The district's own boss: the Rat King in the Slums, the Don on the square.
+        if ((don ? 'mob' : 'slums') === this.night.district) this.night.tally.king = true
+        this.checkMarks()
+      }
       this.rankWeapon(5)
       for (const s of STATS) this.save.stacks[s] += 2
       const levels = grantXp(this.save, bp.xp)
@@ -2003,7 +2035,7 @@ export class Game {
       this.spawnDrops(e.x, e.z, loot.ichor, 'ichor')
       this.spawnDrops(e.x, e.z, loot.vitae, 'vitae')
       for (const [mat, n] of Object.entries(BOSS_MATERIALS[don ? 'don' : 'boss']) as [Material, number][]) {
-        this.spawnDrops(e.x, e.z, n, mat)
+        this.spawnDrops(e.x, e.z, matDrop(n, this.night?.danger ?? 0), mat)
       }
       if (!don && this.save.bossKills === 1) this.hud.toast('The way to the Mob District opens at the Haven')
       if (levels) this.onLevel(levels)
@@ -2016,7 +2048,14 @@ export class Game {
     const xp = e.rewardXp || def.xp
     const blood = Math.round((e.rewardBlood || def.blood) * profile(this.save).bloodMult * this.nightPay() * this.frenzyMult())
     this.save.kills += 1
-    if (this.night) this.night.kills += 1
+    if (this.night) {
+      const t = this.night.tally
+      this.night.kills += 1
+      t.kills += 1
+      if (e.elite) t.elites += 1
+      if (this.night.elapsed < SWIFT_SECONDS) t.early += 1
+      this.checkMarks()
+    }
     this.rankWeapon(1)
     if (e.kind === 'thug' || e.kind === 'enforcer') this.save.mobKills += 1
     this.save.stacks[def.stat] += 1
@@ -2025,9 +2064,11 @@ export class Game {
     this.floatAt(e.x, 0.4, e.z, `+${blood}`, 'blood')
     this.spawnDrops(e.x, e.z, blood)
     if (Math.random() < def.drop.chance || e.elite) {
-      const n = def.drop.amount * (e.elite ? 2 : 1)
-      this.spawnDrops(e.x, e.z, n, def.drop.mat)
-      this.floatAt(e.x, e.barY + 0.2, e.z, `+${n} ${MATERIAL_LABEL[def.drop.mat]}`, def.drop.mat)
+      const n = matDrop(def.drop.amount * (e.elite ? 2 : 1), this.night?.danger ?? 0)
+      if (n > 0) {
+        this.spawnDrops(e.x, e.z, n, def.drop.mat)
+        this.floatAt(e.x, e.barY + 0.2, e.z, `+${n} ${MATERIAL_LABEL[def.drop.mat]}`, def.drop.mat)
+      }
     }
     if (e.elite) {
       const ichor = eliteIchor(this.night?.danger ?? 0)
@@ -2121,6 +2162,18 @@ export class Game {
     return night ? nightSteps(night.district, night.danger, night.elapsed) : 0
   }
 
+  /** Enemy damage multiplier from the night's district and danger. */
+  private bite(): number {
+    const night = this.night
+    return night ? nightBite(night.district, night.danger) : 1
+  }
+
+  /** Enemy HP multiplier from the night's district and danger. */
+  private tough(): number {
+    const night = this.night
+    return night ? nightTough(night.district, night.danger) : 1
+  }
+
   /** Blood multiplier from the night's district and danger. */
   private nightPay(): number {
     const night = this.night
@@ -2136,6 +2189,7 @@ export class Game {
     if (!night || night.over) return
     night.frenzy = Math.min(frenzyCap(this.save.rites.frenzy), night.frenzy + 1)
     night.sinceKill = 0
+    if (night.frenzy >= frenzyCap(this.save.rites.frenzy)) night.tally.frenzied = true
   }
 
   /** Pickups go into the night's carried purse. Outside a night they bank at once. */
@@ -2238,8 +2292,8 @@ export class Game {
 
   /** Dusk: the hero leaves the Haven for a district at a danger, or picks a saved night back up. */
   private beginNight(district: DistrictId, danger: number, resume?: NightSave): void {
-    if (district === 'mob' && this.save.bossKills < 1) {
-      this.hud.toast(DISTRICTS.mob.lockText)
+    if (!districtOpen(this.save, district)) {
+      this.hud.toast(DISTRICTS[district].lockText)
       return
     }
     danger = Math.max(0, Math.min(danger, this.save.danger[district]))
@@ -2262,6 +2316,8 @@ export class Game {
       warned: false,
       dawn: false,
       over: false,
+      tally: resume?.tally ? { ...resume.tally } : emptyTally(),
+      said: [],
     }
     const def = DISTRICTS[district]
     this.placeHero(def.start.x, def.start.z)
@@ -2347,13 +2403,26 @@ export class Game {
       this.save[k] += got[k]
     }
     this.save.extracts += 1
-    let unlock: string | null = null
-    if (night.danger === this.save.danger[night.district] && night.danger < DANGERS.length - 1) {
-      this.save.danger[night.district] = night.danger + 1
-      unlock = `Danger ${DANGERS[night.danger + 1].label} opens in ${DISTRICTS[night.district].label}`
+    // Marks and the Omen only count for a hunter who gets out.
+    const tally = { ...night.tally, blood: night.carried.blood }
+    const wasMobOpen = districtOpen(this.save, 'mob')
+    const { done, opened } = scoreMarks(this.save, night.district, night.danger, tally)
+    const marks: string[] = []
+    for (const mark of done) {
+      this.payOut(mark.reward, got)
+      marks.push(`Mark: ${mark.text}`)
     }
+    const omen = omenFor(this.save)
+    if (omenCounts(this.save, omen, night.district, night.danger) && tallyMeets(omen.def, tally)) {
+      this.save.omenDay = omen.day
+      this.payOut(omen.reward, got)
+      marks.push(`Omen: ${markText(omen.def, night.district)}`)
+    }
+    let unlock: string | null = null
+    if (opened != null) unlock = `Danger ${DANGERS[opened].label} opens in ${DISTRICTS[night.district].label}`
+    if (!wasMobOpen && districtOpen(this.save, 'mob')) unlock = `${unlock ? `${unlock}. ` : ''}The Mob District opens`
     this.burst(this.hero.x, 1, this.hero.z, 0x9fe0ff, 24, 3, 0.7)
-    this.finishNight('extracted', got, emptyPurse(), bonus, unlock)
+    this.finishNight('extracted', got, emptyPurse(), bonus, unlock, marks)
   }
 
   /** The night ends without extracting: a death, the dawn, or giving up. The Blood Pact keeps a share. */
@@ -2372,7 +2441,41 @@ export class Game {
     this.finishNight(why, got, lost, 0, null)
   }
 
-  private finishNight(outcome: 'extracted' | 'fell' | 'dawn' | 'fled', banked: Purse, lost: Purse, bonusVitae: number, unlock: string | null): void {
+  /** Calls out a one-night mark the moment the night meets it. It still only counts on getting out. */
+  private checkMarks(): void {
+    const night = this.night
+    if (!night || night.over) return
+    const said = night.said
+    MARKS[night.district][night.danger].forEach((def, i) => {
+      if (def.kind === 'extract' || def.kind === 'unbroken' || def.kind === 'haul') return
+      if (markDone(this.save, night.district, night.danger, i) || said.includes(`m${i}`)) return
+      if (!tallyMeets(def, night.tally)) return
+      said.push(`m${i}`)
+      this.hud.toast(`Mark met: ${markText(def, night.district)}. Get out to keep it.`)
+    })
+    const omen = omenFor(this.save)
+    if (!said.includes('omen') && omen.def.kind !== 'unbroken' && omenCounts(this.save, omen, night.district, night.danger) && tallyMeets(omen.def, night.tally)) {
+      said.push('omen')
+      this.hud.toast(`Omen met: ${markText(omen.def, night.district)}. Get out to keep it.`)
+    }
+  }
+
+  /** Banks a mark or Omen reward, and adds it to what the summary shows came home. */
+  private payOut(reward: Partial<Purse>, shown: Purse): void {
+    for (const [k, v] of Object.entries(reward) as [Currency, number][]) {
+      this.save[k] += v
+      shown[k] += v
+    }
+  }
+
+  private finishNight(
+    outcome: 'extracted' | 'fell' | 'dawn' | 'fled',
+    banked: Purse,
+    lost: Purse,
+    bonusVitae: number,
+    unlock: string | null,
+    marks: string[] = [],
+  ): void {
     const night = this.night!
     night.over = true
     night.channel = 0
@@ -2388,6 +2491,7 @@ export class Game {
       kills: night.kills,
       time: formatClock(night.elapsed),
       unlock,
+      marks,
     })
     this.sfx.play(outcome === 'extracted' ? 'level' : 'hurt')
     this.persist()
@@ -2465,11 +2569,33 @@ export class Game {
         id,
         label: DISTRICTS[id].label,
         blurb: DISTRICTS[id].blurb,
-        locked: id === 'mob' && save.bossKills < 1,
+        locked: !districtOpen(save, id),
         lockText: DISTRICTS[id].lockText,
-        dangers: DANGERS.map((d, i) => ({ label: d.label, reward: nightReward(id, i), unlocked: i <= save.danger[id] })),
+        dangers: DANGERS.map((d, i) => ({
+          label: d.label,
+          reward: nightReward(id, i),
+          unlocked: i <= save.danger[id],
+          marks: MARKS[id][i].map((def, j) => ({
+            text: markText(def, id),
+            have: markHave(save, id, i, j),
+            need: def.kind === 'extract' ? def.n : 1,
+            done: markDone(save, id, i, j),
+          })),
+          reward2: markReward(id, i),
+          cleared: MARKS[id][i].every((_, j) => markDone(save, id, i, j)),
+        })),
         best: save.danger[id],
+        gate: districtGate(save, id),
       })),
+      omen: (() => {
+        const omen = omenFor(save)
+        const where = DISTRICT_IDS.filter((id) => districtOpen(save, id))
+          .map((id) => `${DISTRICTS[id].label.replace('The ', '')} ${DANGERS[Math.max(0, save.danger[id] - 1)].label}+`)
+          .join(' or ')
+        return { text: markText(omen.def, 'slums').replace('the Rat King', 'a district boss'), reward: omen.reward, done: save.omenDay === omen.day, where }
+      })(),
+      marksDone: marksCleared(save),
+      marksTotal: marksTotal(),
       powers: SKILLS.map((id) => {
         const rank = save.powers[id]
         const cost = rank < POWER_MAX ? powerCost(rank) : 0
@@ -2791,10 +2917,10 @@ export class Game {
     if (!this.hunting() || this.district !== 'slums') return
     if (this.boss && !this.boss.dead) return
     if (!force && (this.paused() || this.summonCd > 0 || this.save.kills < 10)) return
-    const bp = bossBlueprint(this.save, this.steps())
+    const bp = bossBlueprint(this.save, this.steps(), this.bite(), this.tough())
     const spot = this.kingSpot()
     const boss = this.makeActor('boss', this.kenney ? this.kenney.boss() : createBoss(), spot.x, spot.z, bp.hp, 0.78, 2.45)
-    boss.armor = kingArmor(this.save.bossKills)
+    boss.armor = bossArmor(this.save.bossKills, this.steps())
     boss.dmg = bp.dmg
     boss.speed = bp.speed
     boss.rewardXp = bp.xp
@@ -2813,10 +2939,10 @@ export class Game {
     if (!this.hunting() || this.district !== 'mob') return
     if (!force && (this.paused() || this.don || this.donCd > 0 || this.save.mobKills < 10)) return
     if (this.don && !this.don.dead) return
-    const bp = donBlueprint(this.save, this.steps())
+    const bp = donBlueprint(this.save, this.steps(), this.bite(), this.tough())
     const spot = this.ahead()
     const don = this.makeActor('don', this.kenney ? this.kenney.don() : createDon(), spot.x, spot.z, bp.hp, 0.82, 2.55)
-    don.armor = kingArmor(this.save.donKills)
+    don.armor = bossArmor(this.save.donKills, this.steps())
     don.dmg = bp.dmg
     don.speed = bp.speed
     don.rewardXp = bp.xp
@@ -3177,7 +3303,7 @@ export class Game {
   ): Actor {
     const rig = this.kenney ? this.kenney[kind]() : FALLBACK[kind]()
     const def = ENEMIES[kind]
-    const stats = enemyStats(kind, this.steps())
+    const stats = enemyStats(kind, this.steps(), this.bite(), this.tough())
     const actor = this.makeActor(kind, rig, x, z, stats.hp, def.radius, def.barY)
     actor.dmg = stats.dmg
     actor.speed = stats.speed
@@ -3193,7 +3319,7 @@ export class Game {
 
   private revive(e: Actor, x: number, z: number): void {
     if (e.kind === 'hero' || e.kind === 'boss' || e.kind === 'don') return
-    const stats = enemyStats(e.kind, this.steps())
+    const stats = enemyStats(e.kind, this.steps(), this.bite(), this.tough())
     e.x = x
     e.z = z
     e.dead = false
@@ -3238,6 +3364,8 @@ export class Game {
       }
       if (pod.members.length > 0) {
         if (pod.members.some((e) => e.deathT <= 0.4)) return
+        this.night!.tally.pods += 1
+        this.checkMarks()
         for (const e of pod.members) this.dropEnemy(e)
         pod.members = []
         pod.timer = def.respawn
@@ -3366,7 +3494,7 @@ export class Game {
   }
 
   private rivalBlueprint(kind: 'boss' | 'don') {
-    return kind === 'don' ? donBlueprint(this.save, this.steps()) : bossBlueprint(this.save, this.steps())
+    return kind === 'don' ? donBlueprint(this.save, this.steps(), this.bite(), this.tough()) : bossBlueprint(this.save, this.steps(), this.bite(), this.tough())
   }
 
   private clampArena(x: number, z: number): { x: number; z: number } {
@@ -3398,7 +3526,7 @@ export class Game {
     }
     const here = this.district === 'slums' ? SLUM_GATE : MOB_GATE
     if (Math.hypot(this.hero.x - here.x, this.hero.z - here.z) > 1.15) return
-    if (this.district === 'slums' && this.save.bossKills < 1) {
+    if (this.district === 'slums' && !districtOpen(this.save, 'mob')) {
       if (this.gateNag <= 0) {
         this.gateNag = 2.4
         this.hud.toast('The Rat King still bars the district')
@@ -3977,7 +4105,7 @@ export class Game {
     const night = this.night
     this.save.night =
       night && !night.over
-        ? { district: night.district, danger: night.danger, elapsed: night.elapsed, carried: { ...night.carried }, kills: night.kills }
+        ? { district: night.district, danger: night.danger, elapsed: night.elapsed, carried: { ...night.carried }, kills: night.kills, tally: { ...night.tally } }
         : null
     writeSave(this.save)
   }
@@ -4260,6 +4388,7 @@ export class Game {
         const q = this.hero.rig.armR.quaternion
         return {
           attack: this.hero.atkT > 0 && this.hero.swingDur > 0 ? this.hero.atkT / this.hero.swingDur : 0,
+          heroH: +new THREE.Box3().setFromObject(this.hero.rig.root).getSize(new THREE.Vector3()).y.toFixed(2),
           hand: [+p.x.toFixed(3), +p.y.toFixed(3), +p.z.toFixed(3)],
           arm: [+q.x.toFixed(3), +q.y.toFixed(3), +q.z.toFixed(3), +q.w.toFixed(3)],
           actors: this.enemies

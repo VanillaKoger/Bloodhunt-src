@@ -34,9 +34,22 @@ export interface HavenView {
     blurb: string
     locked: boolean
     lockText: string
-    dangers: { label: string; reward: number; unlocked: boolean }[]
+    dangers: {
+      label: string
+      reward: number
+      unlocked: boolean
+      /** The danger's three marks, and what clearing one pays. */
+      marks: { text: string; have: number; need: number; done: boolean }[]
+      reward2: Partial<Purse>
+      cleared: boolean
+    }[]
     best: number
+    /** What a locked district still asks for. */
+    gate: { text: string; done: boolean }[]
   }[]
+  omen: { text: string; reward: Partial<Purse>; done: boolean; where: string }
+  marksDone: number
+  marksTotal: number
   powers: { id: SkillId; label: string; rank: number; max: number; effect: string; cost: number; canBuy: boolean }[]
   rites: { id: RiteId; label: string; rank: number; max: number; effect: string; next: string; cost: number; canBuy: boolean }[]
   works: { id: WorkId; label: string; blurb: string; level: number; max: number; effect: string; next: string; cost: Partial<Purse>; canBuy: boolean }[]
@@ -60,6 +73,8 @@ export interface SummaryView {
   kills: number
   time: string
   unlock: string | null
+  /** Marks and the Omen this night finished. */
+  marks: string[]
 }
 
 export interface AscendView {
@@ -588,6 +603,7 @@ export class Hud {
       lines.push(`<li class="${k}"><span>${CURRENCY_LABEL[k]}</span><b>+${formatNum(banked)}</b>${bonus}${gone}</li>`)
     }
     if (lines.length === 1) lines.push('<li>Nothing came home.</li>')
+    for (const mark of view.marks) lines.push(`<li class="mark">${mark}</li>`)
     if (view.unlock) lines.push(`<li class="unlock">${view.unlock}</li>`)
     el.querySelector('#end-lines')!.innerHTML = lines.join('')
   }
@@ -627,7 +643,8 @@ export class Hud {
       body = view.districts
         .map((d) => {
           if (d.locked) {
-            return `<div class="district locked"><h3>${d.label}</h3><p>${d.blurb}</p><p class="lock">${d.lockText}</p></div>`
+            const gate = d.gate.map((g) => `<li class="${g.done ? 'done' : ''}">${g.text}</li>`).join('')
+            return `<div class="district locked"><h3>${d.label}</h3><p>${d.blurb}</p><ul class="marks gate">${gate}</ul></div>`
           }
           const picked = Math.min(this.pick[d.id] ?? d.best, d.best)
           const pips = d.dangers
@@ -636,16 +653,32 @@ export class Hud {
                 `<button type="button" class="pip ${i === picked ? 'on' : ''}" data-act="danger" data-district="${d.id}" data-id="${i}" ${x.unlocked ? '' : 'disabled'}>${x.label}</button>`,
             )
             .join('')
-          const reward = d.dangers[picked].reward
+          const at = d.dangers[picked]
+          const next = d.dangers[picked + 1]
+          const marks = at.marks
+            .map((mk) => `<li class="${mk.done ? 'done' : ''}">${mk.text}${mk.need > 1 ? ` <small>${Math.min(mk.have, mk.need)}/${mk.need}</small>` : ''}</li>`)
+            .join('')
+          const goal = at.cleared
+            ? 'Marks cleared.'
+            : next
+              ? `Clear all three to open Danger ${next.label}. Each pays ${costText(at.reward2)}.`
+              : `The deepest marks. Each pays ${costText(at.reward2)}.`
           return `<div class="district">
             <h3>${d.label}</h3>
             <p>${d.blurb}</p>
             <div class="pips"><span>Danger</span>${pips}</div>
-            <p class="pay">×${reward.toFixed(2)} Blood · extract to open the next danger</p>
+            <p class="pay">×${at.reward.toFixed(2)} Blood</p>
+            <ul class="marks">${marks}</ul>
+            <p class="goal">${goal} Marks count when you get out.</p>
             <button type="button" class="begin" data-act="begin" data-id="${d.id}">Begin the night</button>
           </div>`
         })
         .join('')
+      const om = view.omen
+      body =
+        `<div class="omen ${om.done ? 'done' : ''}"><b>Tonight's Omen</b><span>${om.done ? 'Met. A new one comes at midnight.' : `${om.text} · ${om.where}`}</span>${om.done ? '' : `<em>Pays ${costText(om.reward)}</em>`}</div>` +
+        body +
+        `<p class="haven-rules">${view.marksDone} of ${view.marksTotal} marks cleared.</p>`
       body += `<p class="haven-rules">Dusk lasts ${view.night}. Everything you pick up is carried. Reach a way out to bank it. Fall, or meet the dawn, and you keep ${view.keep}%.</p>`
     } else if (this.havenTab === 'powers') {
       body = view.powers
