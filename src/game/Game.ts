@@ -19,9 +19,13 @@ import {
   gearFlat,
   CLAW_TIERS,
   clawTier,
+  feedWeapon,
   gearName,
   kingArmor,
   nextClawTier,
+  rankKills,
+  tierPower,
+  weaponRank,
   grantXp,
   mitigate,
   profile,
@@ -47,13 +51,14 @@ import {
   createWitch,
   createWolf,
   equipWeapon,
+  type MeleeState,
   type Rig,
 } from './models'
 import { loadSave, takeOfflineGains, writeSave } from './save'
 import { Sfx } from './sfx'
 import type { EnemyKind, SaveData, SkillId, Slot } from './types'
 import { SKILLS, STATS } from './types'
-import { STARTER_TIER, WEAPONS, WEAPON_KINDS, isWeaponKind, weaponName, weaponTraits, type WeaponKind } from './weapons'
+import { STARTER_TIER, WEAPONS, WEAPON_KINDS, isWeaponKind, swingRate, weaponName, weaponTraits, type SwingDef, type WeaponKind } from './weapons'
 import type { KenneyLib } from './kenney'
 import { createStage, makeDrift, qualityLow, type Stage } from './polish'
 import { DISTRICT_OPEN, FOG_COLOR, HERO_START, MOB_ARRIVE, MOB_GATE, MOB_Z, NORTH_ALLEY_SHIFT, SLUM_GATE, SLUM_RETURN, buildWorld, inSlums, nearestSlum, setNodeVisual, type WorldHandle } from './world'
@@ -236,6 +241,11 @@ export class Game {
   private beamT = 0
   private beamTarget: Actor | null = null
   private slashT = 0
+  /** The hero's swing: its clip, the clip's playback rate, and the elapsed time its hit lands. */
+  private swingMove: SwingDef = WEAPONS.claws.swings[0]
+  private swingRate = 1
+  private swingHit = 0
+  private swingN = 0
   private shake = 0
   private hitStop = 0
   private readonly tip = new THREE.Vector3()
@@ -828,8 +838,8 @@ export class Game {
     if (hero.atkT > 0) {
       hero.atkT += dt
       const len = hero.swingDur
-      if (hero.atkT >= len * 0.4) this.slashT = Math.max(this.slashT, 0.18)
-      if (!hero.struck && hero.atkT >= len * 0.48) {
+      if (hero.atkT >= this.swingHit - 0.06 / this.swingRate) this.slashT = Math.max(this.slashT, 0.18)
+      if (!hero.struck && hero.atkT >= this.swingHit) {
         hero.struck = true
         this.resolveStrike(prof)
       }
@@ -838,12 +848,19 @@ export class Game {
     if (this.dashT <= 0 && hero.atkCd <= 0 && hero.atkT <= 0) {
       const target = this.nearest(2.15, false, true)
       if (target) {
-        const len = Math.min(0.4, Math.max(0.22, prof.interval * 0.86))
+        // The swing fills the whole attack interval, and its clip plays at
+        // the one rate that has it back on guard as the next swing is due.
+        const swings = WEAPONS[this.save.weapon].swings
+        const move = swings[this.swingN % swings.length]
+        this.swingN++
+        this.swingMove = move
+        this.swingRate = swingRate(move, prof.interval)
+        this.swingHit = Math.min(move.contact / this.swingRate, prof.interval * 0.9)
         hero.atkCd = prof.interval
         hero.atkT = 0.0001
         hero.struck = false
-        hero.swingDur = len
-        hero.swingT = len
+        hero.swingDur = prof.interval
+        hero.swingT = prof.interval
       }
     }
     this.animateActor(hero, dt)
@@ -917,6 +934,7 @@ export class Game {
 
   private resolveStrike(prof: CombatProfile): void {
     const hero = this.hero
+    const w = WEAPONS[this.save.weapon]
     const fx = Math.sin(hero.facing)
     const fz = -Math.cos(hero.facing)
     let any = false
@@ -926,18 +944,18 @@ export class Game {
       const dx = e.x - hero.x
       const dz = e.z - hero.z
       const dist = Math.hypot(dx, dz) || 0.0001
-      const reach = 1.95 + e.radius * 0.35
+      const reach = 1.95 + w.reach + e.radius * 0.35
       if (dist > reach) continue
       const dot = (dx / dist) * fx + (dz / dist) * fz
-      if (dot < 0.15) continue
+      if (dot < w.arc) continue
       const crit = Math.random() < prof.crit
       const dmg = prof.dmg * (crit ? 1.7 : 1)
       this.damageEnemy(e, dmg, crit)
       const nx = dx / dist
       const nz = dz / dist
       if (!e.dummy) {
-        e.kx = nx * 14
-        e.kz = nz * 14
+        e.kx = nx * 14 * w.knock
+        e.kz = nz * 14 * w.knock
         e.knockT = 0.22
         fought = true
       }
@@ -948,16 +966,22 @@ export class Game {
     }
     if (any) {
       this.sfx.play('hit')
-      if (fought) this.hitStop = 0.08
-      this.shake = Math.max(this.shake, 0.26)
+      if (fought) this.hitStop = 0.08 * Math.max(1, w.knock * 0.85)
+      this.shake = Math.max(this.shake, 0.26 * Math.max(1, w.knock * 0.8))
     }
+  }
+
+  /** The trail draws through the strike: from just before the contact frame to just after it, in clip seconds. */
+  private trailLive(): boolean {
+    if (this.hero.atkT <= 0) return false
+    const t = this.hero.atkT * this.swingRate
+    const c = this.swingMove.contact
+    return t >= c - 0.14 && t <= c + 0.1
   }
 
   private sampleTrail(): void {
     const hero = this.hero
-    if (hero.atkT <= 0 || hero.swingDur <= 0) return
-    const u = hero.atkT / hero.swingDur
-    if (u < 0.3 || u > 0.78) return
+    if (!this.trailLive()) return
     const hand = hero.rig.claws[0]?.getObjectByName('claw-tip') ?? hero.rig.claws[0] ?? hero.rig.armR
     hand.updateWorldMatrix(true, true)
     this.tip.setFromMatrixPosition(hand.matrixWorld)
@@ -966,8 +990,7 @@ export class Game {
   }
 
   private updateTrail(dt: number): void {
-    const u = this.hero.atkT > 0 && this.hero.swingDur > 0 ? this.hero.atkT / this.hero.swingDur : 0
-    const live = u >= 0.3 && u <= 0.8
+    const live = this.trailLive()
     if (!live && this.trailPts.length > 0 && dt > 0) {
       const drop = Math.max(1, Math.round(dt * 36))
       this.trailPts.splice(0, drop)
@@ -1799,6 +1822,7 @@ export class Game {
         this.world.gateGlow.color.setHex(0xff4ad8)
       }
       this.save.kills += 1
+      this.rankWeapon(5)
       this.save.blood += blood
       for (const s of STATS) this.save.stacks[s] += 2
       const levels = grantXp(this.save, bp.xp)
@@ -1826,6 +1850,7 @@ export class Game {
     const xp = e.rewardXp || def.xp
     const blood = Math.round((e.rewardBlood || def.blood) * profile(this.save).bloodMult)
     this.save.kills += 1
+    this.rankWeapon(1)
     if (e.kind === 'thug' || e.kind === 'enforcer') this.save.mobKills += 1
     this.save.stacks[def.stat] += 1
     const levels = grantXp(this.save, xp)
@@ -2020,16 +2045,32 @@ export class Game {
     const lv = this.save.gear[slot]
     const maxed = lv >= MAX_GEAR
     const cost = upgradeCost(lv)
-    this.hud.setGearCard(this.slotName(slot, lv), lv, GEAR_BLURB[slot](lv, this.save.evolved[slot]), cost, !maxed && this.save.blood >= cost, maxed)
     const tier = clawTier(this.save.gear.weapon)
     const next = nextClawTier(this.save.gear.weapon)
+    const held = weaponRank(this.save, this.save.weapon)
+    const power = tierPower(tier, held.rank)
+    const tierBonus = ` · ×${power.toFixed(2)} dmg${tier.crit > 0 ? ` · +${Math.round(tier.crit * 100)}% crit` : ''}`
+    this.hud.setGearCard(
+      this.slotName(slot, lv),
+      lv,
+      GEAR_BLURB[slot](lv, this.save.evolved[slot]) + (slot === 'weapon' ? tierBonus : ''),
+      cost,
+      !maxed && this.save.blood >= cost,
+      maxed,
+    )
+    const rankLine =
+      held.rank >= tier.ranks
+        ? `Rank ${held.rank}/${tier.ranks} · Mastered`
+        : `Rank ${held.rank}/${tier.ranks} · ${held.kills}/${rankKills(tier, held.rank)} kills`
     this.hud.setClawTier(
       slot === 'weapon' ? tier : null,
-      next ? `${next.label} at Lv. ${next.from}` : 'Highest tier',
-      clawTier(this.save.gear.weapon).css,
+      `${rankLine} · ${next ? `${next.label} at Lv. ${next.from}` : 'Highest tier'}`,
+      tier.css,
     )
-    const starter = CLAW_TIERS.find((t) => t.id === STARTER_TIER)!
-    this.hud.setArmory(slot === 'weapon', this.save.weapon, starter.label, starter.css)
+    const labels = Object.fromEntries(
+      WEAPON_KINDS.map((kind) => [kind, `${tier.label} · R${weaponRank(this.save, kind).rank}`]),
+    ) as Record<WeaponKind, string>
+    this.hud.setArmory(slot === 'weapon', this.save.weapon, labels, tier.css)
     const w = WEAPONS[this.save.weapon]
     const traits = weaponTraits(this.save.weapon)
     this.hud.setGearNote(slot === 'weapon' ? `${w.blurb}${traits ? ` ${traits}.` : ''}` : null)
@@ -2042,8 +2083,9 @@ export class Game {
 
   private applyWeaponLook(): void {
     equipWeapon(this.hero.rig, this.save.weapon)
-    applyGearVisual(this.hero.rig, this.save.gear.weapon, this.save.gear.cape, this.save.evolved.weapon, this.save.evolved.cape)
     const tier = clawTier(this.save.gear.weapon)
+    const rankFrac = weaponRank(this.save, this.save.weapon).rank / tier.ranks
+    applyGearVisual(this.hero.rig, this.save.gear.weapon, this.save.gear.cape, this.save.evolved.weapon, this.save.evolved.cape, rankFrac)
     const hue = new THREE.Color(tier.color)
     ;(this.trail.material as THREE.MeshBasicMaterial).color.copy(hue).lerp(new THREE.Color(0xffffff), 0.35)
     ;(this.slash.material as THREE.SpriteMaterial).color.copy(hue)
@@ -2071,13 +2113,30 @@ export class Game {
     const name = this.slotName(slot, lv + 1)
     if (tierUp) {
       const tier = clawTier(lv + 1)
-      this.hud.toast(`${weaponName(this.save.weapon, tier)} awakened`)
+      this.hud.toast(`${weaponName(this.save.weapon, tier)} · ${tier.ranks} ranks to earn`)
       this.burst(this.hero.x, 1.0, this.hero.z, tier.color, 18, 2.6, 0.6)
       this.shake = Math.max(this.shake, 0.22)
     } else this.hud.toast(evolvedNow ? `${name} awakened` : `${name} sharpened`)
     this.syncVitals(profile(this.save))
     this.persist()
     this.refreshMenu()
+  }
+
+  /** Kills count toward the equipped weapon's next rank in its tier. */
+  private rankWeapon(kills: number): void {
+    const gained = feedWeapon(this.save, kills)
+    if (gained <= 0) return
+    const tier = clawTier(this.save.gear.weapon)
+    const held = weaponRank(this.save, this.save.weapon)
+    this.applyWeaponLook()
+    this.syncVitals(profile(this.save))
+    this.sfx.play('upgrade')
+    this.hud.toast(
+      held.rank >= tier.ranks
+        ? `${weaponName(this.save.weapon, tier)} mastered`
+        : `${weaponName(this.save.weapon, tier)} · Rank ${held.rank}`,
+    )
+    this.burst(this.hero.x, 1.0, this.hero.z, tier.color, 14, 2.2, 0.5)
   }
 
   private equip(kind: WeaponKind): void {
@@ -2562,6 +2621,17 @@ export class Game {
     const swing = actor.kind === 'hero' ? 0 : actor.swingT > 0 ? 1 - actor.swingT / actor.swingDur : 0
     const attack = actor.kind === 'hero' && actor.atkT > 0 ? Math.min(1, actor.atkT / actor.swingDur) : 0
     if (actor.kind === 'hero' && !actor.dead) {
+      const melee: MeleeState | null =
+        actor.atkT > 0
+          ? {
+              clip: this.swingMove.clip,
+              time: actor.atkT * this.swingRate,
+              rate: this.swingRate,
+              contact: this.swingMove.contact,
+              id: this.swingN,
+              lunge: WEAPONS[this.save.weapon].lunge,
+            }
+          : null
       this.gait = this.damp(this.gait, this.gaitTarget, dt, 3.4)
       this.loco = this.damp(this.loco, this.locoTarget, dt, 3.4)
       animateHero(
@@ -2575,6 +2645,7 @@ export class Game {
         attack,
         this.loco,
         1,
+        melee,
       )
     } else if (!actor.dead) {
       animateRig(actor.rig, performance.now() * 0.001 + actor.id, actor.moving, swing, dt)
@@ -3069,6 +3140,8 @@ export class Game {
         gear: { ...this.save.gear },
         evolved: { ...this.save.evolved },
         weapon: this.save.weapon,
+        weaponRank: weaponRank(this.save, this.save.weapon),
+        tier: clawTier(this.save.gear.weapon).id,
         level: this.save.level,
         xp: this.save.xp,
         bossKills: this.save.bossKills,
@@ -3212,6 +3285,9 @@ export class Game {
         this.hero.dead = false
         this.hero.atkT = Math.max(0.001, Math.min(0.999, u))
         this.hero.swingDur = 1
+        // u runs the swing from wind-up to back on guard.
+        this.swingMove = WEAPONS[this.save.weapon].swings[0]
+        this.swingRate = this.swingMove.ready
         this.hero.facing = 0
         this.debugCam = 'duel'
       },

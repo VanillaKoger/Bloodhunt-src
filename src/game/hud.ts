@@ -419,9 +419,9 @@ export class Hud {
 
   /**
    * Weapon item cards, shown while the weapon slot is selected. Each card
-   * carries its own item tier (`tierLabel`, `tierCss`); `equipped` is lit.
+   * carries its tier and rank (`labels`) in the tier color; `equipped` is lit.
    */
-  setArmory(show: boolean, equipped: WeaponKind, tierLabel: string, tierCss: string): void {
+  setArmory(show: boolean, equipped: WeaponKind, labels: Record<WeaponKind, string>, tierCss: string): void {
     const el = this.root.querySelector('#armory') as HTMLElement
     el.hidden = !show
     el.style.setProperty('--tier', tierCss)
@@ -429,7 +429,7 @@ export class Hud {
       const on = card.dataset.kind === equipped
       card.classList.toggle('on', on)
       card.setAttribute('aria-pressed', on ? 'true' : 'false')
-      card.querySelector('small')!.textContent = tierLabel
+      card.querySelector('small')!.textContent = labels[card.dataset.kind as WeaponKind]
     }
   }
 
@@ -444,7 +444,7 @@ export class Hud {
     this.root.querySelector('#gear-note')!.textContent = text ?? INSTALL_TIP
   }
 
-  /** Rarity line under the weapon name. `weaponCss` also tints the weapon slot border. */
+  /** Rarity line under the weapon name, with the rank line under it. `weaponCss` also tints the weapon slot border. */
   setClawTier(tier: ClawTier | null, next: string, weaponCss: string): void {
     const el = this.root.querySelector('#gear-tier') as HTMLElement
     const name = this.root.querySelector('#gear-name') as HTMLElement
@@ -454,7 +454,7 @@ export class Hud {
     if (!tier) return
     el.style.setProperty('--tier', tier.css)
     el.querySelector('b')!.textContent = tier.label
-    el.querySelector('.tier-next')!.textContent = ` · ${next}`
+    el.querySelector('.tier-next')!.textContent = next
   }
 
   showOffline(report: OfflineReport | null): void {

@@ -1,11 +1,15 @@
 import { ATTRS, zeroAttrs } from './attributes'
-import { OFFLINE_CAP_SEC, OFFLINE_MIN_SEC, grantXp } from './balance'
-import type { OfflineReport, SaveData, Stat } from './types'
+import { CLAW_TIERS, OFFLINE_CAP_SEC, OFFLINE_MIN_SEC, grantXp } from './balance'
+import type { OfflineReport, SaveData, Stat, WeaponRank } from './types'
 import { SLOTS, STATS } from './types'
-import { isWeaponKind } from './weapons'
+import { WEAPON_KINDS, isWeaponKind, type WeaponKind } from './weapons'
 
 const KEY = 'bloodhunt-save-v1'
 const BAK = 'bloodhunt-save-v1-bak'
+
+function freshRanks(): Record<WeaponKind, WeaponRank> {
+  return Object.fromEntries(WEAPON_KINDS.map((k) => [k, { tier: 'teethling', rank: 0, kills: 0 }])) as Record<WeaponKind, WeaponRank>
+}
 
 export function freshSave(now = Date.now()): SaveData {
   const stacks = {} as Record<Stat, number>
@@ -17,6 +21,7 @@ export function freshSave(now = Date.now()): SaveData {
     attrs: zeroAttrs(),
     gear: { weapon: 1, cape: 1, coat: 1, boots: 1 },
     weapon: 'claws',
+    weaponRanks: freshRanks(),
     evolved: { weapon: false, cape: false, coat: false, boots: false },
     level: 1,
     xp: 0,
@@ -70,6 +75,16 @@ function sanitize(raw: unknown): SaveData | null {
     }
   }
   if (isWeaponKind(raw.weapon)) base.weapon = raw.weapon
+  if (isRecord(raw.weaponRanks)) {
+    for (const k of WEAPON_KINDS) {
+      const r = raw.weaponRanks[k]
+      if (!isRecord(r)) continue
+      const tier = CLAW_TIERS.find((t) => t.id === r.tier)
+      if (!tier) continue
+      const int = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0)
+      base.weaponRanks[k] = { tier: tier.id, rank: Math.min(tier.ranks, int(r.rank)), kills: int(r.kills) }
+    }
+  }
   if (isRecord(raw.evolved)) {
     for (const s of SLOTS) base.evolved[s] = raw.evolved[s] === true
   }

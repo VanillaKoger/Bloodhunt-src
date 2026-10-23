@@ -21,6 +21,20 @@ export interface KenneyAnimState {
    * meets the target, and the lunge has to follow that face.
    */
   lungeSign?: number
+  /** The hero's current weapon swing. Null between swings. */
+  melee?: MeleeState | null
+}
+
+/** A hero swing on its KayKit clip. Times are clip seconds. */
+export interface MeleeState {
+  clip: string
+  time: number
+  /** Clip seconds per second. The fade-out keeps this rate. */
+  rate: number
+  contact: number
+  /** Bumps once per swing, so back-to-back swings of one clip still blend. */
+  id: number
+  lunge: number
 }
 
 export interface KenneyDriver {
@@ -567,9 +581,10 @@ export function animateHero(
   attack = 0,
   speed = 0,
   lungeSign = 1,
+  melee: MeleeState | null = null,
 ): void {
   if (rig.drive) {
-    rig.drive.update({ dt, gait, phase, hipYaw, swing, attack, time, footSync: true, speed, lungeSign })
+    rig.drive.update({ dt, gait, phase, hipYaw, swing, attack, time, footSync: true, speed, lungeSign, melee })
     return
   }
   const hip = rig.hip
@@ -680,9 +695,10 @@ interface TierShape {
 
 const TIER_SHAPE: Record<ClawTierId, TierShape> = {
   teethling: { count: 3, len: 0.72, rad: 1.2, fan: 0.22, base: 0x5c6068, glow: 0.12, tip: null, guard: null, ember: null },
-  bloodied: { count: 3, len: 1.0, rad: 1.05, fan: 0.28, base: 0x1f7a34, glow: 0.45, tip: 0xd0102a, guard: null, ember: null },
-  elder: { count: 4, len: 1.32, rad: 1.0, fan: 0.24, base: 0x5a1ea8, glow: 0.95, tip: 0xf2dcff, guard: 0x6a2ac0, ember: null },
-  ancient: { count: 5, len: 1.58, rad: 1.08, fan: 0.2, base: 0xc45410, glow: 1.35, tip: 0xfff2c0, guard: 0xe8c25a, ember: 0xff7a1a },
+  kindred: { count: 3, len: 1.0, rad: 1.05, fan: 0.28, base: 0x1f7a34, glow: 0.45, tip: 0xd0102a, guard: null, ember: null },
+  awakened: { count: 4, len: 1.2, rad: 1.0, fan: 0.26, base: 0x1a4aa8, glow: 0.75, tip: 0xd8ecff, guard: null, ember: null },
+  ascendent: { count: 4, len: 1.4, rad: 1.0, fan: 0.24, base: 0x5a1ea8, glow: 1.0, tip: 0xf2dcff, guard: 0x6a2ac0, ember: null },
+  immortal: { count: 5, len: 1.62, rad: 1.08, fan: 0.2, base: 0x8a0814, glow: 1.4, tip: 0xffe0e4, guard: 0x2a0408, ember: 0xff1a30 },
 }
 
 const tierGeo = {
@@ -700,7 +716,7 @@ function buildClawSet(id: ClawTierId, spec: ClawSpec, main: THREE.MeshLambertMat
   const len = spec.len * shape.len
   const rad = spec.rad * shape.rad
   const tipMat =
-    shape.tip == null ? null : new THREE.MeshLambertMaterial({ color: shape.tip, emissive: shape.tip, emissiveIntensity: id === 'bloodied' ? 0.55 : 1.1 })
+    shape.tip == null ? null : new THREE.MeshLambertMaterial({ color: shape.tip, emissive: shape.tip, emissiveIntensity: id === 'kindred' ? 0.55 : 1.1 })
   for (let i = 0; i < shape.count; i++) {
     const k = shape.count === 1 ? 0 : i / (shape.count - 1) - 0.5
     const off = k * spec.gap * (shape.count - 1) * 0.75
@@ -726,7 +742,7 @@ function buildClawSet(id: ClawTierId, spec: ClawSpec, main: THREE.MeshLambertMat
       tip.position.y = l * 0.86
       claw.add(tip)
     }
-    if (id === 'bloodied' && i !== 1) {
+    if (id === 'kindred' && i !== 1) {
       const drop = new THREE.Mesh(tierGeo.bead, tipMat!)
       drop.scale.setScalar(rad * 0.42)
       drop.position.set(spec.axis === 'z' ? rad * 0.4 : 0, l * 0.62, spec.axis === 'x' ? rad * 0.4 : 0)
@@ -735,7 +751,7 @@ function buildClawSet(id: ClawTierId, spec: ClawSpec, main: THREE.MeshLambertMat
     set.add(claw)
   }
   if (shape.guard != null) {
-    const guardMat = new THREE.MeshLambertMaterial({ color: shape.guard, emissive: shape.guard, emissiveIntensity: id === 'ancient' ? 0.5 : 0.7 })
+    const guardMat = new THREE.MeshLambertMaterial({ color: shape.guard, emissive: shape.guard, emissiveIntensity: id === 'immortal' ? 0.5 : 0.7 })
     const ring = new THREE.Mesh(tierGeo.ring, guardMat)
     const span = spec.gap * (shape.count - 1) * 0.4 + rad * 1.4
     const narrow = rad * 1.6
@@ -802,7 +818,8 @@ export function equipWeapon(rig: Rig, kind: WeaponKind): void {
   rig.mats.claw = weapons[kind].mat
 }
 
-export function applyGearVisual(rig: Rig, weaponLv: number, capeLv: number, evolvedWeapon: boolean, evolvedCape: boolean): void {
+/** `rankFrac` is the equipped weapon's rank over its tier's last rank: the tint glows brighter as it climbs. */
+export function applyGearVisual(rig: Rig, weaponLv: number, capeLv: number, evolvedWeapon: boolean, evolvedCape: boolean, rankFrac = 0): void {
   applyClawTier(rig, weaponLv)
   const tiered = rig.root.userData.clawTier != null && rig.claws.some((hand) => hand.userData.clawSpec)
   const kay = Boolean(rig.root.userData.kayFist)
@@ -811,7 +828,7 @@ export function applyGearVisual(rig: Rig, weaponLv: number, capeLv: number, evol
   if (rig.mats.claw) {
     if (tiered || kay) {
       const span = next ? Math.max(1, next.from - tier.from) : 10
-      const into = Math.min(1, (weaponLv - tier.from) / span)
+      const into = Math.max(rankFrac, Math.min(1, (weaponLv - tier.from) / span))
       if (kay && !tiered) {
         rig.mats.claw.color.setHex(tier.color)
         rig.mats.claw.emissive.setHex(tier.color)

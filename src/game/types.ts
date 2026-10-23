@@ -1,4 +1,5 @@
 import type { Attr } from './attributes'
+import type { ClawTierId } from './balance'
 import type { WeaponKind } from './weapons'
 
 export type Stat =
@@ -28,6 +29,14 @@ export const SLOTS: Slot[] = ['weapon', 'cape', 'coat', 'boots']
 
 export const SKILLS: SkillId[] = ['bats', 'drain', 'dash', 'nova']
 
+/** Kill ranks one weapon class holds in the tier it earned them in. */
+export interface WeaponRank {
+  tier: ClawTierId
+  rank: number
+  /** Kills toward the next rank. */
+  kills: number
+}
+
 export interface SaveData {
   v: 1
   blood: number
@@ -37,6 +46,8 @@ export interface SaveData {
   gear: Record<Slot, number>
   /** The equipped weapon class. Its level is `gear.weapon`. */
   weapon: WeaponKind
+  /** Per weapon class. A tier change starts every class over at rank 0. */
+  weaponRanks: Record<WeaponKind, WeaponRank>
   evolved: Record<Slot, boolean>
   level: number
   xp: number

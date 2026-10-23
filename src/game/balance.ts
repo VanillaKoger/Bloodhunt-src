@@ -1,8 +1,8 @@
 import { applyAttributes } from './attributes'
-import type { EnemyKind, SaveData, SkillId, Slot, Stat } from './types'
+import type { EnemyKind, SaveData, SkillId, Slot, Stat, WeaponRank } from './types'
 import { NORTH_ALLEY_SHIFT } from './world'
 import { SLOTS } from './types'
-import { WEAPONS } from './weapons'
+import { WEAPONS, type WeaponKind } from './weapons'
 
 export const BASE_STAT: Record<Stat, number> = {
   strength: 8,
@@ -23,9 +23,10 @@ const GEAR: Record<Slot, { stat: Stat; per: number; also: { stat: Stat; per: num
 export const GEAR_NAMES: Record<Slot, [number, string][]> = {
   weapon: [
     [1, 'Teethling Claws'],
-    [10, 'Bloodied Claws'],
-    [25, 'Elder Claws'],
-    [40, 'Ancient Claws'],
+    [10, 'Kindred Claws'],
+    [20, 'Awakened Claws'],
+    [32, 'Ascendent Claws'],
+    [44, 'Immortal Claws'],
   ],
   cape: [
     [1, 'Tattered Cape'],
@@ -308,23 +309,34 @@ export function zeroStats(): Record<Stat, number> {
   return { strength: 0, fortitude: 0, agility: 0, sorcery: 0, resistance: 0, vitality: 0 }
 }
 
-export type ClawTierId = 'teethling' | 'bloodied' | 'elder' | 'ancient'
+export type ClawTierId = 'teethling' | 'kindred' | 'awakened' | 'ascendent' | 'immortal'
 
 export interface ClawTier {
   id: ClawTierId
   label: string
-  /** Weapon level where this tier starts. Stats still come from the level alone. */
+  /** Weapon level where this tier starts. */
   from: number
   /** Rarity color used for the mesh, trail, and menu text. */
   color: number
   css: string
+  /** Weapon damage multiplier at rank 0. Never below the last tier's full rank. */
+  power: number
+  /** Crit chance added on top of the weapon's own. */
+  crit: number
+  /** Kill ranks the tier holds. Higher tiers hold more. */
+  ranks: number
+  /** Damage multiplier added per rank. */
+  perRank: number
+  /** Kills for the first rank. Each rank after asks for half that again. */
+  kills: number
 }
 
 export const CLAW_TIERS: ClawTier[] = [
-  { id: 'teethling', label: 'Teethling', from: 1, color: 0xa8acb4, css: '#c4c8cf' },
-  { id: 'bloodied', label: 'Bloodied', from: 10, color: 0x4fdc6a, css: '#6fef86' },
-  { id: 'elder', label: 'Elder', from: 25, color: 0xa65cff, css: '#c08bff' },
-  { id: 'ancient', label: 'Ancient', from: 40, color: 0xff9a2a, css: '#ffb15a' },
+  { id: 'teethling', label: 'Teethling', from: 1, color: 0x9a9ea6, css: '#b6bac2', power: 1, crit: 0, ranks: 3, perRank: 0.04, kills: 10 },
+  { id: 'kindred', label: 'Kindred', from: 10, color: 0x3fcf5e, css: '#5fe07c', power: 1.15, crit: 0.02, ranks: 5, perRank: 0.05, kills: 18 },
+  { id: 'awakened', label: 'Awakened', from: 20, color: 0x3a8cff, css: '#62a8ff', power: 1.42, crit: 0.04, ranks: 7, perRank: 0.06, kills: 28 },
+  { id: 'ascendent', label: 'Ascendent', from: 32, color: 0xa65cff, css: '#c08bff', power: 1.86, crit: 0.06, ranks: 9, perRank: 0.07, kills: 40 },
+  { id: 'immortal', label: 'Immortal', from: 44, color: 0xff2238, css: '#ff4d5e', power: 2.5, crit: 0.09, ranks: 12, perRank: 0.08, kills: 55 },
 ]
 
 export function clawTier(level: number): ClawTier {
@@ -335,6 +347,44 @@ export function clawTier(level: number): ClawTier {
 
 export function nextClawTier(level: number): ClawTier | null {
   return CLAW_TIERS.find((t) => t.from > level) ?? null
+}
+
+/** Kills to go from `rank` to `rank + 1` inside a tier. */
+export function rankKills(tier: ClawTier, rank: number): number {
+  return Math.round(tier.kills * (1 + rank * 0.5))
+}
+
+/** A weapon's rank in the current tier. A rank earned in an older tier reads as a fresh start. */
+export function weaponRank(save: SaveData, kind: WeaponKind): WeaponRank {
+  const tier = clawTier(save.gear.weapon)
+  const held = save.weaponRanks[kind]
+  if (held.tier !== tier.id) return { tier: tier.id, rank: 0, kills: 0 }
+  return { tier: tier.id, rank: Math.min(tier.ranks, held.rank), kills: held.kills }
+}
+
+/** Damage multiplier from the equipped weapon's tier and rank. */
+export function tierPower(tier: ClawTier, rank: number): number {
+  return tier.power + Math.min(tier.ranks, rank) * tier.perRank
+}
+
+/**
+ * Counts kills toward the equipped weapon's next rank. Kills past the
+ * tier's last rank are dropped: the room to grow comes from the next tier.
+ * Returns the ranks gained.
+ */
+export function feedWeapon(save: SaveData, kills: number): number {
+  const tier = clawTier(save.gear.weapon)
+  const held = weaponRank(save, save.weapon)
+  let gained = 0
+  held.kills += kills
+  while (held.rank < tier.ranks && held.kills >= rankKills(tier, held.rank)) {
+    held.kills -= rankKills(tier, held.rank)
+    held.rank += 1
+    gained++
+  }
+  if (held.rank >= tier.ranks) held.kills = 0
+  save.weaponRanks[save.weapon] = held
+  return gained
 }
 
 export function gearName(slot: Slot, level: number): string {
@@ -407,9 +457,11 @@ export function profile(save: SaveData): CombatProfile {
   const fort = combatStat(save, 'fortitude')
   const res = combatStat(save, 'resistance')
   const w = WEAPONS[save.weapon]
+  const tier = clawTier(save.gear.weapon)
+  const power = tierPower(tier, weaponRank(save, save.weapon).rank)
   return applyAttributes({
-    dmg: (10 + str * 0.55 + save.gear.weapon * 1.35) * w.dmg,
-    crit: Math.min(0.45, 0.05 + agi * 0.0035 + w.crit),
+    dmg: (10 + str * 0.55 + save.gear.weapon * 1.35) * w.dmg * power,
+    crit: Math.min(0.45, 0.05 + agi * 0.0035 + w.crit + tier.crit),
     interval: Math.max(0.28, 0.52 - agi * 0.003 - save.gear.boots * 0.012) * w.interval,
     speed: 3.2 + agi * 0.018 + save.gear.boots * 0.055,
     hp: 96 + vit * 2.3 + save.gear.coat * 5,

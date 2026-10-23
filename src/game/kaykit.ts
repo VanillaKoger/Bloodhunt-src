@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { addRim } from './polish'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js'
-import type { KenneyAnimState, KenneyDriver, Rig } from './models'
+import type { KenneyAnimState, KenneyDriver, MeleeState, Rig } from './models'
 import { WEAPON_KINDS, type WeaponKind } from './weapons'
 
 /**
@@ -22,6 +22,10 @@ const UP = new THREE.Vector3(0, 1, 0)
 const HERO_SCALE = 0.88
 /** Head bone only. Body scale stays at HERO_SCALE. */
 const HEAD_SCALE = 0.93
+/** Clip seconds a weapon swing takes to blend in over the pose under it. */
+const SWING_IN = 0.12
+/** Seconds a finished swing takes to hand the body back to idle / walk. */
+const SWING_OUT = 0.16
 
 function asset(path: string): string {
   return new URL(path, new URL(import.meta.env.BASE_URL, window.location.href)).href
@@ -36,8 +40,18 @@ function smoother(edge0: number, edge1: number, x: number): number {
   return t * t * (3 - 2 * t)
 }
 
+/** One swing action and its own clock while it fades out. */
+interface SwingSlot {
+  action: THREE.AnimationAction
+  time: number
+  rate: number
+  weight: number
+  contact: number
+  lunge: number
+}
+
 /**
- * Melee_1H_Attack_Stab draws back through the first 38%, then the arm
+ * Ghouls only. Melee_1H_Attack_Stab draws back through the first 38%, then the arm
  * drives through around 52–62%. The hit is registered at attack u=0.48, so
  * the thrust is pulled onto that instant and the rest stays draw / recovery.
  */
@@ -64,6 +78,7 @@ class KayDriver implements KenneyDriver {
     private readonly head: THREE.Object3D | null,
     meleeClip: THREE.AnimationClip | null,
     private readonly lunge: boolean,
+    private readonly clips: Map<string, THREE.AnimationClip>,
   ) {
     for (const action of [idle, walk, sprint]) {
       action.setLoop(THREE.LoopRepeat, Infinity)
@@ -85,8 +100,17 @@ class KayDriver implements KenneyDriver {
   private readonly idle: THREE.AnimationAction
   private readonly walk: THREE.AnimationAction
   private readonly sprint: THREE.AnimationAction
+  /** Two actions per weapon clip, so a swing can blend into another swing of the same clip. */
+  private readonly swingActions = new Map<string, [THREE.AnimationAction, THREE.AnimationAction]>()
+  private swing: SwingSlot | null = null
+  private tail: SwingSlot | null = null
+  private swingId = -1
 
   update(state: KenneyAnimState): void {
+    if (state.melee !== undefined) {
+      this.updateHero(state)
+      return
+    }
     const gait = clamp(state.gait, 0, 1)
     const swing = state.attack > 0 ? state.attack : clamp(state.swing, 0, 1)
     const attacking = swing > 0 && this.melee != null
@@ -112,9 +136,105 @@ class KayDriver implements KenneyDriver {
       this.mixer.update(state.dt)
     }
     this.applyAim(state, gait, attacking)
-    this.applyStrike(state, attacking && this.lunge)
+    this.bob.position.set(0, 0, 0)
     // Absolute, every frame: the mixer can write the bind scale back.
     if (this.lunge && this.head) this.head.scale.setScalar(HEAD_SCALE)
+  }
+
+  /**
+   * The hero. Locomotion always runs underneath; a weapon swing is laid
+   * over it at one even rate (no time warp), blends in over its first
+   * frames, and when the swing is done keeps playing on its own clock
+   * while it fades back to the feet. A new swing takes over from a
+   * fading one the same way.
+   */
+  private updateHero(state: KenneyAnimState): void {
+    const gait = clamp(state.gait, 0, 1)
+    const m = state.melee ?? null
+    if (m && m.id !== this.swingId) this.startSwing(m)
+    else if (!m && this.swing) {
+      this.tail = this.swing
+      this.swing = null
+    }
+    if (m && this.swing) {
+      this.swing.time = m.time
+      this.swing.rate = m.rate
+      this.swing.weight = smoother(0, SWING_IN, m.time)
+    }
+    if (this.tail) {
+      const t = this.tail
+      t.time = Math.min(t.action.getClip().duration, t.time + state.dt * t.rate)
+      t.weight = this.swing ? Math.min(t.weight, 1 - this.swing.weight) : t.weight - state.dt / SWING_OUT
+      if (t.weight <= 0) {
+        t.action.setEffectiveWeight(0)
+        this.tail = null
+      }
+    }
+    const over = Math.min(1, (this.swing?.weight ?? 0) + (this.tail?.weight ?? 0))
+    for (const slot of [this.swing, this.tail]) {
+      if (!slot) continue
+      slot.action.time = Math.min(slot.time, slot.action.getClip().duration - 1e-4)
+      slot.action.setEffectiveWeight(slot.weight)
+    }
+    this.blendHero(state)
+    for (const action of [this.idle, this.walk, this.sprint]) action.setEffectiveWeight(action.getEffectiveWeight() * (1 - over))
+    this.mixer.update(state.dt)
+    const attacking = this.swing != null
+    this.applyAim(state, gait, attacking)
+    this.applySwingLean(state, attacking)
+    if (this.lunge && this.head) this.head.scale.setScalar(HEAD_SCALE)
+  }
+
+  private startSwing(m: MeleeState): void {
+    this.swingId = m.id
+    if (this.swing) this.tail = this.swing
+    let pair = this.swingActions.get(m.clip)
+    if (!pair) {
+      const src = this.clips.get(m.clip)
+      if (!src) {
+        this.swing = null
+        return
+      }
+      pair = [this.mixer.clipAction(src), this.mixer.clipAction(src.clone())]
+      for (const action of pair) {
+        action.setLoop(THREE.LoopOnce, 1)
+        action.clampWhenFinished = true
+        action.play()
+        action.paused = true
+        action.setEffectiveWeight(0)
+      }
+      this.swingActions.set(m.clip, pair)
+    }
+    const action = this.tail?.action === pair[0] ? pair[1] : pair[0]
+    this.swing = { action, time: m.time, rate: m.rate, weight: 0, contact: m.contact, lunge: m.lunge }
+  }
+
+  /**
+   * Coil back into the wind-up and lean through the contact frame, on top
+   * of the clip. Timed in clip seconds off the weapon's contact, scaled by
+   * how far that weapon leans and by the swing's blend weight.
+   */
+  private applySwingLean(state: KenneyAnimState, attacking: boolean): void {
+    let z = 0
+    let y = 0
+    let rx = 0
+    const sign = state.lungeSign ?? 1
+    for (const slot of [this.swing, this.tail]) {
+      if (!slot || slot.weight <= 0) continue
+      const c = slot.contact
+      const t = slot.time
+      const coil = c * 0.8
+      const wind = t < coil ? smoother(0, coil, t) : Math.max(0, 1 - (t - coil) / (c - coil + 0.05))
+      const strike = t < c - 0.08 ? 0 : t < c + 0.04 ? (t - (c - 0.08)) / 0.12 : Math.max(0, 1 - (t - c - 0.04) / 0.36)
+      const k = slot.lunge * slot.weight
+      z += sign * k * (-0.2 * wind + 0.42 * strike)
+      y += -0.05 * wind * slot.weight
+      rx += sign * k * (0.32 * wind - 0.4 * strike)
+    }
+    this.bob.position.set(0, y, z)
+    // A live swing skips the walk lean, so the swing owns the tilt; a fading one adds to it.
+    if (attacking) this.bob.rotation.set(rx, 0, 0)
+    else this.bob.rotation.x += rx
   }
 
   /**
@@ -143,20 +263,6 @@ class KayDriver implements KenneyDriver {
   private pace(speed: number, stride: number, duration: number, cap: number): number {
     if (speed < 0.08) return 0.35
     return clamp((speed / stride) * duration, 0.42, cap)
-  }
-
-  /** Coil back, then a short lunge, on top of the stab clip. */
-  private applyStrike(state: KenneyAnimState, attacking: boolean): void {
-    if (!attacking) {
-      this.bob.position.set(0, 0, 0)
-      return
-    }
-    const u = state.attack > 0 ? state.attack : state.swing
-    const wind = u < 0.36 ? u / 0.36 : Math.max(0, 1 - (u - 0.36) / 0.18)
-    const strike = u < 0.34 ? 0 : u < 0.58 ? (u - 0.34) / 0.24 : Math.max(0, 1 - (u - 0.58) / 0.42)
-    const sign = state.lungeSign ?? 1
-    this.bob.position.set(0, -0.05 * wind, sign * (-0.2 * wind + 0.42 * strike))
-    this.bob.rotation.set(sign * (0.32 * wind - 0.4 * strike), 0, 0)
   }
 
   private applyAim(state: KenneyAnimState, gait: number, attacking: boolean): void {
@@ -472,6 +578,7 @@ function wrap(model: THREE.Object3D, height: number, clips: Map<string, THREE.An
     head,
     clip(clips, 'Melee_1H_Attack_Stab'),
     lunge,
+    clips,
   )
   return {
     root,

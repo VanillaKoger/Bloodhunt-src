@@ -749,13 +749,15 @@ footer {
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 6px;
+  flex-wrap: wrap;
+  gap: 2px 6px;
   margin-top: 2px;
   font-size: 12px;
   color: #cdbb98;
   letter-spacing: 0.04em;
 }
 #gear-tier[hidden] { display: none; }
+#gear-tier .tier-next { flex-basis: 100%; text-align: center; }
 #gear-tier b { color: var(--tier); font-family: Cinzel, Palatino, serif; letter-spacing: 0.1em; text-transform: uppercase; }
 #gear-tier .tier-pip {
   width: 10px;
