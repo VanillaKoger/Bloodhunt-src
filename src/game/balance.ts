@@ -1,27 +1,61 @@
 import { WORK_STEP } from './haven'
 import { PACE } from './pace'
-import { applyAttributes } from './attributes'
 import type { EnemyKind, SaveData, SkillId, Slot, Stat, WeaponRank } from './types'
 import { SLOTS } from './types'
 import { WEAPONS, weaponInterval, type WeaponKind } from './weapons'
 import { powerScale } from './nights'
 
+/**
+ * Four stats, one per gear slot, and every point is worth the same wherever
+ * it came from: the hero's start, a gear level, a hero level, or feeding.
+ *
+ *   Strength  hit damage                     (weapon)
+ *   Vitality  health and armor               (coat)
+ *   Agility   crit chance and move speed     (boots)
+ *   Sorcery   blood power damage and cooldown (cape)
+ */
 export const BASE_STAT: Record<Stat, number> = {
-  strength: 8,
-  fortitude: 8,
-  agility: 8,
-  sorcery: 8,
-  resistance: 6,
-  vitality: 22,
+  strength: 30,
+  vitality: 50,
+  agility: 15,
+  sorcery: 15,
 }
 
-// Each gear level is a small step. Fifty of them add up to the climb's backbone.
-const GEAR: Record<Slot, { stat: Stat; per: number; also: { stat: Stat; per: number } }> = {
-  weapon: { stat: 'strength', per: 2, also: { stat: 'vitality', per: 0.5 } },
-  cape: { stat: 'sorcery', per: 1.5, also: { stat: 'resistance', per: 1 } },
-  coat: { stat: 'fortitude', per: 2, also: { stat: 'vitality', per: 1.5 } },
-  boots: { stat: 'agility', per: 2, also: { stat: 'fortitude', per: 0.5 } },
+/** The stat each gear slot raises, and by how much a level. Awakening (level 10) adds GEAR_AWAKEN on top. */
+export const GEAR_STAT: Record<Slot, { stat: Stat; per: number }> = {
+  weapon: { stat: 'strength', per: 8 },
+  cape: { stat: 'sorcery', per: 8 },
+  coat: { stat: 'vitality', per: 8 },
+  boots: { stat: 'agility', per: 8 },
 }
+
+export const GEAR_AWAKEN = 10
+
+/** Each hero level past the first adds this to every stat. */
+export const LEVEL_STAT = 3
+
+/** Every kill adds this to the stat its creature feeds; elites feed ELITE_FEEDS times over. */
+export const FEED_STEP = 0.01
+export const ELITE_FEEDS = 3
+/** A boss feeds every stat this many times. */
+export const BOSS_FEEDS = 20
+
+/** What one point of each stat is worth. */
+export const PER_STAT = {
+  /** Hit damage, on top of BASE_HIT, before the weapon's own multiplier and tier. */
+  strength: 0.2,
+  vitality: { hp: 0.6, armor: 0.13 },
+  agility: { crit: 0.0004, speed: 0.006, magnet: 0.003 },
+  sorcery: { skill: 0.0028, cd: 0.00032 },
+}
+
+export const BASE_HIT = 10
+export const BASE_HP = 130
+export const BASE_CRIT = 0.05
+export const CRIT_CAP = 0.45
+export const BASE_SPEED = 3.2
+/** Blood power cooldowns shorten by at most this much. */
+export const CD_CAP = 0.28
 
 export const GEAR_NAMES: Record<Slot, [number, string][]> = {
   weapon: [
@@ -268,7 +302,7 @@ export const LEVEL_CAP = 60
 export const ARENA_R = 7.45
 
 export function zeroStats(): Record<Stat, number> {
-  return { strength: 0, fortitude: 0, agility: 0, sorcery: 0, resistance: 0, vitality: 0 }
+  return { strength: 0, vitality: 0, agility: 0, sorcery: 0 }
 }
 
 export type ClawTierId = 'teethling' | 'kindred' | 'awakened' | 'ascendent' | 'immortal'
@@ -386,35 +420,25 @@ export const XP_POW = 1.95
 export function gearFlat(save: SaveData): Record<Stat, number> {
   const out = zeroStats()
   for (const slot of SLOTS) {
-    const spec = GEAR[slot]
-    const lv = save.gear[slot]
-    out[spec.stat] += spec.per * lv
-    out[spec.also.stat] += spec.also.per * lv
-    if (save.evolved[slot]) out[spec.stat] += 8
+    const spec = GEAR_STAT[slot]
+    out[spec.stat] += spec.per * save.gear[slot] + (save.evolved[slot] ? GEAR_AWAKEN : 0)
   }
   return out
 }
 
-function levelBonus(save: SaveData, stat: Stat): number {
-  if (stat === 'fortitude' || stat === 'resistance') return Math.max(0, save.level - 1)
-  return 0
+/** A stat's value: start, gear, hero levels, and feeding, all at the same worth per point. */
+export function statValue(save: SaveData, stat: Stat): number {
+  return BASE_STAT[stat] + gearFlat(save)[stat] + Math.max(0, save.level - 1) * LEVEL_STAT + save.stacks[stat] * FEED_STEP
 }
 
-export function sheetStat(save: SaveData, stat: Stat): number {
-  return BASE_STAT[stat] + save.stacks[stat] + gearFlat(save)[stat] + levelBonus(save, stat)
-}
-
-/** Combat contribution of feed stacks: each feed adds a sliver, and the whole climb's worth tops out near 60. */
-export function stackPower(stacks: number): number {
-  return (STACK_MAX * stacks) / (stacks + STACK_HALF * PACE)
-}
-
-export const STACK_MAX = 60
-/** Feeds of one stat for half of STACK_MAX. */
-export const STACK_HALF = 6000
-
-export function combatStat(save: SaveData, stat: Stat): number {
-  return BASE_STAT[stat] + gearFlat(save)[stat] + levelBonus(save, stat) + stackPower(save.stacks[stat])
+/** Where a stat's points come from, for the menu. */
+export function statParts(save: SaveData, stat: Stat): { base: number; gear: number; levels: number; feeds: number } {
+  return {
+    base: BASE_STAT[stat],
+    gear: gearFlat(save)[stat],
+    levels: Math.max(0, save.level - 1) * LEVEL_STAT,
+    feeds: save.stacks[stat] * FEED_STEP,
+  }
 }
 
 export interface CombatProfile {
@@ -424,45 +448,48 @@ export interface CombatProfile {
   speed: number
   hp: number
   armor: number
-  resist: number
   skill: number
   lifesteal: number
   regen: number
   cdScale: number
-  /** Blood multiplier on kills (Hunger). */
+  /** Blood multiplier on kills (the Brass Coffer). */
   bloodMult: number
-  /** Damage-taken multiplier after armor (Shade). */
+  /** Damage-taken multiplier after armor. */
   guard: number
 }
 
 export function profile(save: SaveData): CombatProfile {
-  const str = combatStat(save, 'strength')
-  const agi = combatStat(save, 'agility')
-  const sor = combatStat(save, 'sorcery')
-  const vit = combatStat(save, 'vitality')
-  const fort = combatStat(save, 'fortitude')
-  const res = combatStat(save, 'resistance')
+  const str = statValue(save, 'strength')
+  const vit = statValue(save, 'vitality')
+  const agi = statValue(save, 'agility')
+  const sor = statValue(save, 'sorcery')
   const w = WEAPONS[save.weapon]
   const tier = heldTier(save)
   const power = tierPower(tier, weaponRank(save, save.weapon).rank)
-  const prof = applyAttributes({
-    dmg: (10 + str * 0.55 + save.gear.weapon * 0.5) * w.dmg * power,
-    crit: Math.min(0.45, 0.05 + agi * 0.0035 + w.crit + tier.crit),
+  const prof: CombatProfile = {
+    dmg: (BASE_HIT + str * PER_STAT.strength) * w.dmg * power,
+    crit: Math.min(CRIT_CAP, BASE_CRIT + agi * PER_STAT.agility.crit + w.crit + tier.crit),
     // Attack speed is the weapon's alone. Stats, gear, and ranks never touch it.
     interval: weaponInterval(save.weapon),
-    speed: 3.2 + agi * 0.018 + save.gear.boots * 0.055,
-    hp: 96 + vit * 2.3 + save.gear.coat * 2.5,
-    armor: fort * 0.45 + save.gear.coat * 0.5,
-    resist: res,
-    skill: 1 + sor * 0.012 + save.gear.cape * 0.02,
-    lifesteal: Math.min(0.12, 0.03 + vit * 0.0006),
-    regen: 1.1 + vit * 0.035,
-    cdScale: 1 - Math.min(0.28, sor * 0.0014),
+    speed: BASE_SPEED + agi * PER_STAT.agility.speed,
+    hp: BASE_HP + vit * PER_STAT.vitality.hp,
+    armor: vit * PER_STAT.vitality.armor,
+    skill: 1 + sor * PER_STAT.sorcery.skill,
+    lifesteal: LIFESTEAL,
+    regen: 0,
+    cdScale: 1 - Math.min(CD_CAP, sor * PER_STAT.sorcery.cd),
     bloodMult: 1,
     guard: 1,
-  }, save)
-  return applyWorks(prof, save)
+  }
+  const out = applyWorks(prof, save)
+  out.regen = out.hp * REGEN_SHARE
+  return out
 }
+
+/** Share of melee damage the hero drinks back. Flat: no stat changes it. */
+export const LIFESTEAL = 0.06
+/** Out of a fight, the hero mends this share of max HP a second. */
+export const REGEN_SHARE = 0.01
 
 /** The Haven works: small, flat percent gains on top of everything else. */
 function applyWorks(prof: CombatProfile, save: SaveData): CombatProfile {
@@ -477,10 +504,9 @@ function applyWorks(prof: CombatProfile, save: SaveData): CombatProfile {
   }
 }
 
-export function mitigate(raw: number, armor: number, resist: number, fromBoss: boolean): number {
-  const red = armor / (armor + 48)
-  const bossCut = fromBoss ? Math.min(0.4, resist * 0.004) : 0
-  return Math.max(1, raw * (1 - red) * (1 - bossCut))
+/** Damage the hero takes from a hit, after armor. */
+export function mitigate(raw: number, armor: number): number {
+  return Math.max(1, raw * (1 - armor / (armor + 48)))
 }
 
 export function scaledHp(base: number, level: number): number {
@@ -574,13 +600,17 @@ function atSteps(bp: BossSheet, steps: number, bite: number, tough: number): Bos
 }
 
 
+/** Boss HP keeps up with the hero's Strength. */
+const BOSS_STR_HP = 0.75
+const DON_STR_HP = 0.85
+
 /** `kills` is how often this boss has already fallen. */
 export function bossBlueprint(save: SaveData, kills: number, steps = 0, bite = 1, tough = 1): BossSheet {
-  const str = combatStat(save, 'strength')
+  const str = statValue(save, 'strength')
   const n = Math.min(BOSS_GROWTH_KILLS, kills)
   return atSteps(
     {
-      hp: Math.round((460 + str * 5.5) * (1 + n * 0.03)),
+      hp: Math.round((460 + str * BOSS_STR_HP) * (1 + n * 0.03)),
       dmg: 11 + n * 0.5,
       pound: 16 + n * 0.8,
       speed: 1.5,
@@ -595,11 +625,11 @@ export function bossBlueprint(save: SaveData, kills: number, steps = 0, bite = 1
 
 /** Next district boss. Separate from the Rat King so Slums scaling stays put. */
 export function donBlueprint(save: SaveData, kills: number, steps = 0, bite = 1, tough = 1): BossSheet {
-  const str = combatStat(save, 'strength')
+  const str = statValue(save, 'strength')
   const n = Math.min(BOSS_GROWTH_KILLS, kills)
   return atSteps(
     {
-      hp: Math.round((680 + str * 6.2) * (1 + n * 0.03)),
+      hp: Math.round((680 + str * DON_STR_HP) * (1 + n * 0.03)),
       dmg: 14 + n * 0.5,
       pound: 20 + n * 0.8,
       speed: 1.42,
@@ -623,11 +653,28 @@ export function skillDamage(id: SkillId, prof: CombatProfile, rank = 0): number 
 
 export const FEED_COLOR: Record<Stat, string> = {
   strength: '#ffb020',
-  fortitude: '#e6c36a',
   agility: '#3ee0c8',
   sorcery: '#d58bff',
-  resistance: '#8fd0ff',
   vitality: '#ff5a78',
+}
+
+export const STAT_LABEL: Record<Stat, string> = {
+  strength: 'Strength',
+  vitality: 'Vitality',
+  agility: 'Agility',
+  sorcery: 'Sorcery',
+}
+
+export const STAT_SHORT: Record<Stat, string> = { strength: 'STR', vitality: 'VIT', agility: 'AGI', sorcery: 'SOR' }
+
+/** What a stat gives at its current value, e.g. "+43 dmg". */
+export function statEffect(save: SaveData, stat: Stat): string {
+  const v = statValue(save, stat)
+  const pct = (x: number, d = 0) => `${(x * 100).toFixed(d)}%`
+  if (stat === 'strength') return `+${(v * PER_STAT.strength).toFixed(1)} hit`
+  if (stat === 'vitality') return `+${Math.round(v * PER_STAT.vitality.hp)} HP · ${Math.round(v * PER_STAT.vitality.armor)} armor`
+  if (stat === 'agility') return `+${pct(v * PER_STAT.agility.crit, 1)} crit · +${pct((v * PER_STAT.agility.speed) / BASE_SPEED)} speed`
+  return `+${pct(v * PER_STAT.sorcery.skill)} power · −${pct(Math.min(CD_CAP, v * PER_STAT.sorcery.cd))} cooldown`
 }
 
 export function formatNum(n: number): string {

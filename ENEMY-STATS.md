@@ -18,7 +18,7 @@ Damage taken = max(1, raw × (1 − armor / (armor + 40))). Armor 0 is a full hi
 
 ## At 0 steps
 
-| Creature | Role | HP | Damage | Speed | Armor | XP | Blood | Range | Feeds | Drops |
+| Creature | Role | HP | Damage | Speed | Armor | XP | Blood | Range | Feeds (+0.01 a kill) | Drops |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Plague Hound | Skirmisher | 26 | 6 | 2.60 | 0 | 4 | 4 | 1.05 | Agility | 40% × 1 Bone |
 | Plague Walker | Bruiser | 70 | 11 | 1.20 | 5 | 7 | 7 | 1.3 | Vitality | 70% × 1 Bile |
@@ -74,7 +74,7 @@ Worked example at 24 steps, bite ×1.9, tough ×1.5 (about tier 8, the Black Doc
 
 n = his falls so far, counted up to 20. On top of these, the night's steps, bite, and tough apply.
 
-- HP = round((460 + Strength × 5.5) × (1 + n × 0.03))
+- HP = round((460 + Strength × 0.75) × (1 + n × 0.03))
 - Damage = 11 + n × 0.5
 - Pound = 16 + n × 0.8
 - Speed = 1.5
@@ -83,7 +83,7 @@ n = his falls so far, counted up to 20. On top of these, the night's steps, bite
 - Armor = 2 for each of his first ten falls, plus 0.6 per night step
 - Returns 75 seconds after he falls, and the kill still grants +2 to every stat
 
-The heavier sheet (680 + Strength × 6.2 HP, 14 damage, 20 pound) is used by the Countess, the Inquisitor, and the Elder. Every other boss uses the Rat King's.
+The heavier sheet (680 + Strength × 0.85 HP, 14 damage, 20 pound) is used by the Countess, the Inquisitor, and the Elder. Every other boss uses the Rat King's.
 
 He is a bloated plague walker at boss size, with a crown, a cape of rags, and claws. He swings behind a gold marker and pounds the ground in a red ring every 4.6 s. At 60% HP he calls two plague hounds from the rim of his ring and starts leaping for the hero's flank; at 30% he is enraged (20% faster, 28% shorter cooldowns, and the pound lands three times in a row). Each stagger needs 60% more poise than the last. On top of his Blood, Ichor, and Vitae he drops 10 Bile, 6 Bone, and 4 Brass (times the danger's material multiplier). The Don drops 14 Brass and 4 Bone.
 

@@ -51,6 +51,21 @@ And three materials, carried and banked the same way, for the works and the ward
 
 Elites drop double, and the Rat King and the Don drop a pile of each. Spending happens only at the Haven. A reload mid-night resumes it. Rules and numbers live in `src/game/nights.ts` (the night) and `src/game/haven.ts` (the yard, works, and wardrobe). `?enemies=1` still starts a Slums night at load for test runs.
 
+## Stats
+
+Four stats, one per gear slot, and every point is worth the same wherever it came from:
+
+| Stat | Gives | Raised by |
+| --- | --- | --- |
+| Strength | Hit damage | Weapon levels; thralls, skeletons, and thugs |
+| Vitality | Health and armor | Coat levels; walkers and enforcers |
+| Agility | Crit chance and move speed | Boots levels; hounds |
+| Sorcery | Blood power damage, shorter cooldowns | Cape levels; the miasma |
+
+Every kill feeds its creature's stat **+0.01** (an elite +0.03, a boss +0.2 to all four), shown over the kill. Every hero level adds +3 to all four, and every gear level +8 to its stat. The gear menu shows each stat's value to the hundredth and what it gives right now. There are no attribute points to spend, and no other stats.
+
+The bottom of the gear menu has **Reset all progress (testing)**. Tap it, then tap again within four seconds: the save and its backup are erased and the game reloads as a fresh install, with a new hero in the Haven.
+
 ## Combat
 
 The hero still auto-attacks whatever is in reach, and Dash and the attack work as before. What changed is the other side of the fight (rules in `src/game/combat.ts`, ground markers in `src/game/telegraph.ts`):

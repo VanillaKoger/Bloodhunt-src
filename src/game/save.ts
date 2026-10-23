@@ -1,4 +1,3 @@
-import { ATTRS, zeroAttrs } from './attributes'
 import { CLAW_TIERS, LEVEL_CAP, OFFLINE_CAP_SEC, OFFLINE_FEEDS_PER_HOUR, OFFLINE_MIN_SEC, clawTier, grantXp } from './balance'
 import { CURRENCIES, DISTRICT_IDS, RITES, RITE_IDS, RITE_STEP, POWER_MAX, TIERS, emptyPurse, type DistrictId, type Purse } from './nights'
 import { ZONE_COUNT } from './maps'
@@ -40,7 +39,6 @@ export function freshSave(now = Date.now()): SaveData {
     extracts: 0,
     night: null,
     stacks,
-    attrs: zeroAttrs(),
     gear: { weapon: 1, cape: 1, coat: 1, boots: 1 },
     weapon: 'claws',
     weaponRanks: freshRanks(),
@@ -80,16 +78,11 @@ function sanitize(raw: unknown): SaveData | null {
   base.muted = raw.muted === true
   base.camZoom = Math.max(0.75, Math.min(1.5, num('camZoom', 1)))
   base.seenHint = raw.seenHint === true
+  // Older saves also carried Fortitude and Resistance feeds and spent attribute points; both are gone.
   if (isRecord(raw.stacks)) {
     for (const s of STATS) {
       const v = raw.stacks[s]
       base.stacks[s] = typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0
-    }
-  }
-  if (isRecord(raw.attrs)) {
-    for (const a of ATTRS) {
-      const v = raw.attrs[a]
-      base.attrs[a] = typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0
     }
   }
   if (isRecord(raw.gear)) {
@@ -197,6 +190,16 @@ export function loadSave(): SaveData {
     /* fresh */
   }
   return freshSave()
+}
+
+/** Wipes the save and its backup, as if the game were freshly installed. */
+export function wipeSave(): void {
+  try {
+    localStorage.removeItem(KEY)
+    localStorage.removeItem(BAK)
+  } catch {
+    /* storage blocked: nothing was kept anyway */
+  }
 }
 
 export function writeSave(save: SaveData): void {

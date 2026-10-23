@@ -20,6 +20,8 @@ import {
   OFFLINE_CAP_SEC,
   OFFLINE_FEEDS_PER_HOUR,
   BOSS_MATERIALS,
+  BOSS_FEEDS,
+  ELITE_FEEDS,
   SKILL_META,
   bossArmor,
   bossBlueprint,
@@ -68,8 +70,7 @@ import { MAPS, ZONE_COUNT } from '../src/game/maps'
 import { MARKS, bestTier, districtOpen, markDone, marksCleared, marksTotal, omenFor, scoreMarks, type NightTally } from '../src/game/marks'
 import { WORKS, WORK_IDS, canAfford, workCost } from '../src/game/haven'
 import { freshSave } from '../src/game/save'
-import { attrPointsLeft } from '../src/game/attributes'
-import { SKILLS, type SaveData, type Stat } from '../src/game/types'
+import { SKILLS, STATS, type SaveData, type Stat } from '../src/game/types'
 import { ATTACK_TOKENS, FOE_COMBAT, SIG, STAGGER } from '../src/game/combat'
 
 const NIGHTS_PER_DAY = Number(process.argv[2] ?? 4.5)
@@ -196,7 +197,7 @@ function fight(save: SaveData, district: DistrictId, zone: number): Fight {
   const pod = POD_SIZE + Math.floor(tier / 10)
   const clear = pod * ttk
   // Armor's share, read off the zone's average hit (mitigate floors a hit at 1).
-  const hit = (mitigate(foe.dmg, prof.armor, prof.resist, false) * prof.guard) / Math.max(1e-6, foe.dmg)
+  const hit = (mitigate(foe.dmg, prof.armor) * prof.guard) / Math.max(1e-6, foe.dmg)
   // Only a few swing at once; the rest circle and still throw their abilities.
   const engaged = Math.min(ATTACK_TOKENS, pod) * 0.8
   const swings = (foe.dmg * hit * SWING_HIT) / foe.cd
@@ -220,7 +221,7 @@ function bossOdds(save: SaveData, district: DistrictId, zone: number, f: Fight):
   const bp = bossSheet(save, district, zone, f.steps)
   const { prof, total } = heroDps(save, bossArmor(save.bosses[district], f.steps))
   const time = bp.hp / total
-  const incoming = (mitigate(bp.dmg, prof.armor, prof.resist, true) * prof.guard) / 1.35 + (mitigate(bp.pound, prof.armor, prof.resist, true) / 4.6) * 0.5
+  const incoming = (mitigate(bp.dmg, prof.armor) * prof.guard) / 1.35 + (mitigate(bp.pound, prof.armor) / 4.6) * 0.5
   const loss = Math.max(0, incoming * time * 0.7 - prof.lifesteal * total * time * 0.5 - prof.regen * time) / prof.hp
   return Math.max(0, Math.min(0.95, 1.25 - loss))
 }
@@ -259,7 +260,8 @@ function playNight(save: SaveData, district: DistrictId, zone: number): NightOut
     purse[d.mat] += (kills * w * d.chance * d.amount + elites * w * d.amount * 2) * mats
   }
   // Feeding stacks and weapon ranks come from every kill, banked or not.
-  for (const [k, w] of mixOf(district, zone)) save.stacks[ENEMIES[k].stat as Stat] += Math.round(kills * w)
+  // Elites feed ELITE_FEEDS times over.
+  for (const [k, w] of mixOf(district, zone)) save.stacks[ENEMIES[k].stat as Stat] += Math.round((kills + elites * (ELITE_FEEDS - 1)) * w)
   feedWeapon(save, kills)
   save.kills += kills
   let king = false
@@ -270,6 +272,7 @@ function playNight(save: SaveData, district: DistrictId, zone: number): NightOut
     purse.blood += bp.blood * pay
     xp += bp.xp
     const loot = bossLoot(sheet, tier)
+    for (const s of STATS) save.stacks[s] += BOSS_FEEDS
     purse.ichor += loot.ichor
     purse.vitae += loot.vitae
     for (const [mat, n] of Object.entries(BOSS_MATERIALS[sheet === 'don' ? 'don' : 'boss'])) purse[mat as 'bone'] += n * mats
@@ -343,10 +346,6 @@ function choose(save: SaveData, push = false): { district: DistrictId; zone: num
 }
 
 function spend(save: SaveData): void {
-  // Attribute points: mastery first, then might and vitality.
-  const order = ['claws', 'might', 'vitality', 'claws', 'shade', 'hunger'] as const
-  let i = 0
-  while (attrPointsLeft(save) > 0) save.attrs[order[i++ % order.length]] += 1
   // Ichor: the next tier, once the weapon level allows.
   const at = CLAW_TIERS.indexOf(heldTier(save))
   const next = CLAW_TIERS[at + 1]
@@ -470,7 +469,7 @@ function run(s: number): { ms: Milestones; trace: string[] } {
           `  marks ${marksCleared(save)}/${marksTotal()}` +
           `  deepest ${MAPS[deep.district].label.replace('The ', '')} ${deep.zone + 1} (k${df.kills.toFixed(0)} f${(df.pFall * 100).toFixed(0)}%)` +
           `  farms ${MAPS[pick.district].label.replace('The ', '')} ${pick.zone + 1} (k${f.kills.toFixed(0)} f${(f.pFall * 100).toFixed(0)}%: ${Math.round(probe.blood)}b ${probe.ichor.toFixed(0)}i)` +
-          `  dmg ${profile(save).dmg.toFixed(0)} hp ${profile(save).hp.toFixed(0)}`,
+          `  dmg ${profile(save).dmg.toFixed(0)} hp ${profile(save).hp.toFixed(0)}` + (process.env.DBG ? ` st ${JSON.stringify(save.stacks)} k${save.kills}` : ""),
       )
     }
   }

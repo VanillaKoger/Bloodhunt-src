@@ -21,33 +21,33 @@ New endgame loops go on top of that.
 | The Mob District opens | day 4 |
 | Kindred tier | day 9 |
 | The Black Docks open | day 12 |
-| The Night Market opens | day 25 |
-| The Blackwood opens | day 40 |
-| Awakened tier | day 48 |
-| Hollow Graves open | day 58 |
-| Ashen Manor opens | day 72 |
-| Ascendent tier | day 125 |
-| Cathedral of Dawn opens | day 130 |
-| The Deep Catacombs open | day 172 |
-| Works maxed | day 176 |
-| Rites maxed | day 186 |
-| The Crimson Spire opens | day 188 |
-| Powers maxed | day 206 |
-| Immortal tier | day 208 |
-| Level 60 | day 214 |
+| The Night Market opens | day 28 |
+| The Blackwood opens | day 44 |
+| Awakened tier | day 50 |
+| Hollow Graves open | day 64 |
+| Ashen Manor opens | day 78 |
+| Ascendent tier | day 135 |
+| Cathedral of Dawn opens | day 140 |
+| The Deep Catacombs open | day 184 |
+| Works maxed | day 188 |
+| The Crimson Spire opens | day 201 |
+| Rites maxed | day 218 |
+| Level 60 | day 225 |
+| Immortal tier | day 228 |
+| Powers maxed | day 241 |
 | **Every map cleared (all 90 marks)** | **day 249, about 8.2 months** |
-| All gear 50 | day 267 |
-| **Peak** | **day 270, about 8.9 months** |
+| All gear 50 | day 287 |
+| **Peak** | **day 290, about 9.5 months** |
 
 | Sitting | Every map cleared | Peak |
 | --- | --- | --- |
-| 4 nights a day | day 277 (about 9.1 months) | day 300 (about 9.9 months) |
-| 4.5 nights a day | day 249 (about 8.2 months) | day 270 (about 8.9 months) |
-| 5 nights a day | day 224 (about 7.4 months) | day 245 (about 8 months) |
+| 4 nights a day | day 277 (about 9.1 months) | day 323 (about 10.6 months) |
+| 4.5 nights a day | day 249 (about 8.2 months) | day 290 (about 9.5 months) |
+| 5 nights a day | day 226 (about 7.4 months) | day 263 (about 8.6 months) |
 
 The fight model follows the combat rules in `src/game/combat.ts`: two enemies swing at a time and the rest circle, a swing comes every cooldown plus its wind-up, most plain swings land but most red abilities are stepped out of, a share of the hero's damage lands on staggered enemies, regen waits out the fight while lifesteal and Feeds heal, and deeper pods bring one more of their lead from tier 11 and two from tier 21.
 
-The whole length hangs on one knob, `PACE` in `src/game/pace.ts` (now 1.45). Every pacing cost (XP, gear Blood, tier Ichor, weapon-rank kills, power and rite Vitae, work materials, feeding) is multiplied by it.
+The whole length hangs on one knob, `PACE` in `src/game/pace.ts` (now 1.45). Every pacing cost (XP, gear Blood, tier Ichor, weapon-rank kills, power and rite Vitae, work materials) is multiplied by it. Feeding is not: every kill is worth the same +0.01.
 
 ## The maps
 
@@ -129,19 +129,19 @@ The 30 zones are one ladder of tiers. Enemies grow by steps (see `ENEMY-STATS.md
 
 ## What each step is worth
 
-- Hero level: one attribute point, and +1 Fortitude and Resistance.
-- Attribute point: +0.6 damage (Might), +1.5% damage with that weapon type (mastery), +4 HP, +0.25 HP/s, +3% speed, +0.2% lifesteal, +1.5% Blood, or −0.7% damage taken.
-- Gear level: weapon +2 Strength, +0.5 Vitality, +0.5 flat damage; coat +2 Fortitude, +1.5 Vitality, +2.5 HP, +0.5 armor; cape +1.5 Sorcery, +1 Resistance, +2% skill damage; boots +2 Agility, +0.5 Fortitude.
+- Four stats, and a point is worth the same wherever it came from: **Strength** +0.2 hit damage, **Vitality** +0.6 HP and +0.13 armor, **Agility** +0.04% crit and +0.006 move speed, **Sorcery** +0.28% blood power damage and −0.032% cooldown (cooldowns stop at −28%). The hero starts at 30 / 50 / 15 / 15.
+- Hero level: +3 to every stat.
+- Gear level: +8 to its slot's stat (weapon Strength, coat Vitality, boots Agility, cape Sorcery), and +10 more when it awakens at level 10.
 - Weapon tier: ×1.00, ×1.08, ×1.20, ×1.35, ×1.52 damage, plus 1.5–1.8% a rank.
 - Blood power rank: +5% skill damage, −2% cooldown.
 - Rites: Long Night +15 s, Blood Pact +5% kept on a loss, Frenzy +2 stacks, Ichor Scent +0.5% elite chance, Thrall Master +20% offline.
 - Works: Bone Forge +1% weapon damage, Blood Font +1.5% HP, Bile Still +1.5% skill damage, Brass Coffer +1.5% Blood, Ossuary +0.2% crit.
-- Feeding: every kill adds a stack to its stat, giving up to +60; half of that takes about 8,700 feeds of one stat.
+- Feeding: every kill adds +0.01 to the stat its creature feeds (an elite +0.03, a boss +0.2 to all four). No cap and no fall-off: a hundred kills is one point.
 - Frenzy: +5% Blood a stack.
-- Lifesteal is capped at 12%.
+- Lifesteal is a flat 6% of melee damage, and out of a fight the hero mends 1% of max HP a second.
 - Bosses grow 3% HP a fall for their first twenty falls; the tier does the rest.
 - Offline thralls: 6 feeds an hour for up to 8 hours (+20% a Thrall Master rank), paid at the deepest tier open.
 
 ## Tuning
 
-Every number above lives in code: `src/game/pace.ts` (overall length), `src/game/balance.ts` (levels, gear, tiers, stacks, enemies, bosses), `src/game/nights.ts` (the tier ladder, Ichor, Vitae, powers, rites), `src/game/haven.ts` (works), `src/game/maps.ts` (maps, zones, pods, rosters, bosses, boss gates), and `src/game/marks.ts` (marks, the Omen). Change one, run `npm run pacing`, and check that every map is cleared around month 8 and peak lands before month 10 at 4.5 nights a day.
+Every number above lives in code: `src/game/pace.ts` (overall length), `src/game/balance.ts` (stats, levels, gear, tiers, feeding, enemies, bosses), `src/game/nights.ts` (the tier ladder, Ichor, Vitae, powers, rites), `src/game/haven.ts` (works), `src/game/maps.ts` (maps, zones, pods, rosters, bosses, boss gates), and `src/game/marks.ts` (marks, the Omen). Change one, run `npm run pacing`, and check that every map is cleared around month 8 and peak lands before month 10 at 4.5 nights a day.

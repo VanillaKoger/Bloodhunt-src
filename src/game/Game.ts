@@ -15,7 +15,16 @@ import {
   POD_WAKE,
   bossBlueprint,
   donBlueprint,
-  combatStat,
+  statValue,
+  statEffect,
+  GEAR_AWAKEN,
+  GEAR_STAT,
+  STAT_LABEL,
+  STAT_SHORT,
+  BOSS_FEEDS,
+  ELITE_FEEDS,
+  FEED_STEP,
+  PER_STAT,
   enemyMitigate,
   enemyStats,
   formatNum,
@@ -31,7 +40,6 @@ import {
   grantXp,
   mitigate,
   profile,
-  sheetStat,
   skillDamage,
   upgradeCost,
   xpNeed,
@@ -40,7 +48,6 @@ import {
   type Foe,
   type Material,
 } from './balance'
-import { ATTRS, POINTS_PER_LEVEL, attrPointsLeft, effectiveAttrs, weaponType, type Attr } from './attributes'
 import { Hud } from './hud'
 import {
   animateHero,
@@ -59,7 +66,7 @@ import {
   type WeaponSet,
   type Rig,
 } from './models'
-import { loadSave, takeOfflineGains, writeSave } from './save'
+import { loadSave, takeOfflineGains, wipeSave, writeSave } from './save'
 import { Sfx } from './sfx'
 import type { EnemyKind, NightSave, SaveData, SkillId, Slot } from './types'
 import {
@@ -494,11 +501,10 @@ function rollMix(mixes: PodDef['mixes']): Foe[] {
   return mixes[0].kinds
 }
 
-const GEAR_BLURB: Record<Slot, (lv: number, evolved: boolean) => string> = {
-  weapon: (lv, ev) => `+${2 * lv + (ev ? 8 : 0)} Strength · +${formatNum(lv * 0.5)} Vitality`,
-  cape: (lv, ev) => `+${formatNum(1.5 * lv + (ev ? 8 : 0))} Sorcery · +${lv} Resistance`,
-  coat: (lv, ev) => `+${2 * lv + (ev ? 8 : 0)} Fortitude · +${formatNum(1.5 * lv)} Vitality`,
-  boots: (lv, ev) => `+${2 * lv + (ev ? 8 : 0)} Agility · +${formatNum(lv * 0.5)} Fortitude`,
+/** A gear card's line: the one stat its slot raises, in total, and the next level's step. */
+function gearBlurb(slot: Slot, lv: number, evolved: boolean): string {
+  const spec = GEAR_STAT[slot]
+  return `+${spec.per * lv + (evolved ? GEAR_AWAKEN : 0)} ${STAT_LABEL[spec.stat]} · +${spec.per} a level`
 }
 
 export class Game {
@@ -593,6 +599,8 @@ export class Game {
   private feeds = 0
   /** Test hook: the hero holds its swings, so an enemy's whole kit can be watched. */
   private calm = false
+  /** Set by a reset while the page reloads, so nothing writes the old save back. */
+  private wiping = false
   private hurtTotal = 0
   private readonly wardMat = new THREE.MeshBasicMaterial({ color: 0x6ad8ff, transparent: true, opacity: 0.16, depthWrite: false, blending: THREE.AdditiveBlending })
   private readonly affixRingMats = new Map<Affix, THREE.MeshBasicMaterial>()
@@ -897,7 +905,7 @@ export class Game {
     this.hud.onCloseMenu = () => this.closeMenu()
     this.hud.onSelectSlot = () => this.refreshMenu()
     this.hud.onUpgrade = () => this.upgrade()
-    this.hud.onRaise = (attr) => this.raiseAttr(attr)
+    this.hud.onReset = () => this.resetAll()
     this.hud.onEquip = (kind) => this.equip(kind)
     this.hud.onSummon = () => this.trySummon()
     this.hud.onClaim = () => this.claimOffline()
@@ -2474,7 +2482,7 @@ export class Game {
   }
 
   private updateDrops(dt: number): void {
-    const magnet = 4.2 + combatStat(this.save, 'agility') * 0.012
+    const magnet = 4.2 + statValue(this.save, 'agility') * PER_STAT.agility.magnet
     for (let i = this.drops.length - 1; i >= 0; i--) {
       const d = this.drops[i]
       d.life += dt
@@ -3037,7 +3045,7 @@ export class Game {
   private damageHero(raw: number, fromBoss: boolean, src: Actor | null = null): boolean {
     if (this.hero.dead || this.iframe > 0) return false
     const prof = profile(this.save)
-    const amount = Math.max(1, mitigate(raw, prof.armor, prof.resist, fromBoss) * prof.guard)
+    const amount = Math.max(1, mitigate(raw, prof.armor) * prof.guard)
     this.hero.hp -= amount
     this.hurtTotal += amount
     if (this.hunting()) this.night!.tally.minHp = Math.min(this.night!.tally.minHp, Math.max(0, this.hero.hp) / this.hero.maxHp)
@@ -3102,13 +3110,13 @@ export class Game {
         this.checkMarks()
       }
       this.rankWeapon(5)
-      for (const s of STATS) this.save.stacks[s] += 2
+      for (const s of STATS) this.save.stacks[s] += BOSS_FEEDS
       const levels = grantXp(this.save, bp.xp)
       const falls = this.save.bosses[this.district]
       this.hud.banner(`${map.boss.name.toUpperCase()} FALLS`)
       this.hud.toast(falls === 1 ? `${map.label} remembers your name` : `${map.boss.name} falls again (${falls})`)
       this.floatAt(e.x, 2.2, e.z, `+${blood} Blood`, 'blood')
-      this.floatAt(e.x, 1.7, e.z, '+2 all', 'all')
+      this.floatAt(e.x, 1.7, e.z, `+${(BOSS_FEEDS * FEED_STEP).toFixed(1)} all stats`, 'all')
       this.spawnDrops(e.x, e.z, blood)
       this.spawnDrops(e.x, e.z, loot.ichor, 'ichor')
       this.spawnDrops(e.x, e.z, loot.vitae, 'vitae')
@@ -3135,9 +3143,11 @@ export class Game {
     }
     this.rankWeapon(1)
     if (e.kind === 'thug' || e.kind === 'enforcer') this.save.mobKills += 1
-    this.save.stacks[def.stat] += 1
+    // Feeding: a small, exact step to the stat this creature feeds.
+    const feeds = e.elite ? ELITE_FEEDS : 1
+    this.save.stacks[def.stat] += feeds
     const levels = grantXp(this.save, xp)
-    this.floatAt(e.x, e.barY, e.z, `+1 ${def.statLabel}`, def.stat === 'strength' ? 'str' : def.stat === 'agility' ? 'agi' : def.stat === 'vitality' ? 'vit' : 'sor')
+    this.floatAt(e.x, e.barY, e.z, `+${(feeds * FEED_STEP).toFixed(2)} ${STAT_SHORT[def.stat]}`, def.stat === 'strength' ? 'str' : def.stat === 'agility' ? 'agi' : def.stat === 'vitality' ? 'vit' : 'sor')
     this.floatAt(e.x, 0.4, e.z, `+${blood}`, 'blood')
     this.spawnDrops(e.x, e.z, blood)
     if (Math.random() < def.drop.chance || e.elite) {
@@ -3163,8 +3173,7 @@ export class Game {
     this.hero.maxHp = prof.hp
     this.hero.hp = this.hero.maxHp
     this.floatAt(this.hero.x, this.hero.barY + 0.06, this.hero.z, `Level ${this.save.level}`, 'level')
-    const pts = gained * POINTS_PER_LEVEL
-    if (gained > 0) this.hud.toast(`Level ${this.save.level}. The night leans in. +${pts} attribute point${pts > 1 ? 's' : ''}.`)
+    if (gained > 0) this.hud.toast(`Level ${this.save.level}. +${gained} to every stat.`)
   }
 
   private noteKill(): void {
@@ -4144,12 +4153,8 @@ export class Game {
   }
 
   private refreshMenu(): void {
-    const rows = STATS.map((stat) => ({ stat, value: sheetStat(this.save, stat), fill: 0 }))
-    const scale = Math.max(40, ...rows.map((r) => r.value))
-    for (const row of rows) row.fill = row.value / scale
-    this.hud.setStats(rows)
+    this.hud.setStats(STATS.map((stat) => ({ stat, value: statValue(this.save, stat), effect: statEffect(this.save, stat) })))
     this.hud.setFeeds(this.save.kills, this.save.bosses.slums > 0)
-    this.hud.setAttrs(effectiveAttrs(this.save), weaponType(this.save), attrPointsLeft(this.save))
     const slot = this.hud.selected
     const lv = this.save.gear[slot]
     const maxed = lv >= MAX_GEAR
@@ -4162,7 +4167,7 @@ export class Game {
     this.hud.setGearCard(
       this.slotName(slot, lv),
       lv,
-      GEAR_BLURB[slot](lv, this.save.evolved[slot]) + (slot === 'weapon' ? tierBonus : ''),
+      gearBlurb(slot, lv, this.save.evolved[slot]) + (slot === 'weapon' ? tierBonus : ''),
       cost,
       !maxed && this.save.blood >= cost && !this.night,
       maxed,
@@ -4275,17 +4280,14 @@ export class Game {
     this.refreshMenu()
   }
 
-  private raiseAttr(attr: Attr): void {
-    if (attrPointsLeft(this.save) <= 0) {
-      this.hud.toast('No attribute points. Level up to earn more.')
-      this.sfx.play('click')
-      return
-    }
-    this.save.attrs[attr] += 1
-    this.sfx.play('upgrade')
-    this.syncVitals(profile(this.save))
-    this.persist()
-    this.refreshMenu()
+  /**
+   * Starts over as a fresh install: the save and its backup are wiped and the
+   * page reloads into a new hero at the Haven. Nothing is written on the way out.
+   */
+  private resetAll(): void {
+    this.wiping = true
+    wipeSave()
+    location.reload()
   }
 
   private claimOffline(): void {
@@ -5232,6 +5234,8 @@ export class Game {
   }
 
   private persist(): void {
+    // A reset is reloading: writing now would bring the old hero back.
+    if (this.wiping) return
     const night = this.night
     this.save.night =
       night && !night.over
@@ -5378,18 +5382,8 @@ export class Game {
         hits: this.hits,
         nodeBlood: this.nodeBlood,
         killRate: this.save.killRate,
-        sheet: {
-          strength: sheetStat(this.save, 'strength'),
-          agility: sheetStat(this.save, 'agility'),
-          vitality: sheetStat(this.save, 'vitality'),
-          sorcery: sheetStat(this.save, 'sorcery'),
-          fortitude: sheetStat(this.save, 'fortitude'),
-          resistance: sheetStat(this.save, 'resistance'),
-        },
+        sheet: Object.fromEntries(STATS.map((s) => [s, +statValue(this.save, s).toFixed(2)])),
         gearFlat: gearFlat(this.save),
-        attrs: { ...this.save.attrs },
-        attrPoints: attrPointsLeft(this.save),
-        attrFx: effectiveAttrs(this.save),
         prof: profile(this.save),
         camForward: { x: this.camFwd.x, z: this.camFwd.z },
         camRight: { x: this.camRight.x, z: this.camRight.z },
@@ -5520,13 +5514,6 @@ export class Game {
       ascend: () => this.ascend(),
       equip: (kind: WeaponKind) => {
         if (isWeaponKind(kind)) this.equip(kind)
-      },
-      /** Quick test hook: set an attribute's spent points directly, ignoring the point budget. */
-      setAttr: (attr: Attr, value: number) => {
-        if (!ATTRS.includes(attr)) return
-        this.save.attrs[attr] = Math.max(0, Math.floor(value))
-        this.syncVitals(profile(this.save))
-        if (this.mode === 'menu') this.refreshMenu()
       },
       guide: (x: number, z: number, speed = 1.85) => {
         this.guide = { x, z }

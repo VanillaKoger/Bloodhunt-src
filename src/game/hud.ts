@@ -1,9 +1,8 @@
-import { ATTRS, ATTR_LABEL, attrEffect, type Attr, type AttrStats, type WeaponType } from './attributes'
-import { formatNum, type ClawTier } from './balance'
+import { FEED_STEP, STAT_LABEL, formatNum, type ClawTier } from './balance'
 import { paintSkill, paintSlot } from './icons'
 import type { OfflineReport, SkillId, Slot, Stat } from './types'
 import { SKILLS, SLOTS, STATS } from './types'
-import { WEAPONS, WEAPON_KINDS, type WeaponKind } from './weapons'
+import { FAMILY_LABEL, WEAPONS, WEAPON_KINDS, type WeaponKind } from './weapons'
 import { CURRENCIES, type Currency, type DistrictId, type Purse, type RiteId } from './nights'
 import type { LookSlot, WorkId } from './haven'
 
@@ -113,15 +112,6 @@ function costText(cost: Partial<Purse>): string {
     .join(' ')
 }
 
-const STAT_LABEL: Record<Stat, string> = {
-  strength: 'Strength',
-  fortitude: 'Fortitude',
-  agility: 'Agility',
-  sorcery: 'Sorcery',
-  resistance: 'Resistance',
-  vitality: 'Vitality',
-}
-
 const SKILL_LABEL: Record<SkillId, string> = {
   bats: 'Swarm',
   drain: 'Drain',
@@ -157,7 +147,8 @@ export class Hud {
   onCloseMenu = (): void => {}
   onSelectSlot: (slot: Slot) => void = () => {}
   onUpgrade = (): void => {}
-  onRaise: (attr: Attr) => void = () => {}
+  /** Erases every bit of progress. Only reached through the two-tap button in the gear menu. */
+  onReset: () => void = () => {}
   onEquip: (kind: WeaponKind) => void = () => {}
   onSummon = (): void => {}
   onClaim = (): void => {}
@@ -191,7 +182,7 @@ export class Hud {
   private skillSweeps: Record<SkillId, HTMLElement>
   private skillBtns: Record<SkillId, HTMLButtonElement>
   private nodeTags: Record<'crypt' | 'fountain', HTMLElement>
-  private attrsOpen = false
+  private resetArmed = 0
   private havenTab: HavenTab = 'hunt'
   /** The work a station opened the board on, picked out in the list. */
   private havenFocus = ''
@@ -269,9 +260,9 @@ export class Hud {
           <button class="slot" id="slot-coat" type="button"><canvas></canvas><span>COAT</span></button>
           <button class="slot" id="slot-boots" type="button"><canvas></canvas><span>BOOTS</span></button>
           <div class="sheet">
-            <div class="sheet-head"><span id="feeds">Feeds 0</span><span id="trophy" hidden>Crown of the Rat King</span><button id="attr-tab" type="button">Attributes · 0</button></div>
+            <div class="sheet-head"><span id="feeds">Feeds 0</span><span id="trophy" hidden>Crown of the Rat King</span></div>
             <div id="stat-rows"></div>
-            <div id="attr-rows" hidden></div>
+            <p class="sheet-note">Every kill feeds its stat +0.01. Gear and hero levels add whole points.</p>
           </div>
           <div id="armory" hidden></div>
           <div class="upgrade-card">
@@ -286,6 +277,7 @@ export class Hud {
             <p class="spend-note" id="spend-note" hidden>Blood and Ichor are spent at the Haven, after you extract.</p>
             <button id="btn-abandon" type="button" hidden>Abandon the night</button>
             <p class="install-tip" id="gear-note">${INSTALL_TIP}</p>
+            <button id="btn-reset" type="button">Reset all progress (testing)</button>
           </div>
         </div>
         <div id="offline" hidden>
@@ -359,18 +351,8 @@ export class Hud {
       const row = document.createElement('div')
       row.className = 'stat-row'
       row.dataset.stat = stat
-      row.innerHTML = `<span>${STAT_LABEL[stat]}</span><div class="bar"><div></div></div><b>0</b>`
+      row.innerHTML = `<span>${STAT_LABEL[stat]}</span><b>0</b><em></em>`
       rows.appendChild(row)
-    }
-
-    const attrRows = parent.querySelector('#attr-rows')!
-    for (const attr of ATTRS) {
-      const row = document.createElement('div')
-      row.className = 'attr-row'
-      row.dataset.attr = attr
-      row.innerHTML = `<span>${ATTR_LABEL[attr]} <b>0</b></span><em></em><button type="button" aria-label="Raise ${ATTR_LABEL[attr]}">+</button>`
-      tap(row.querySelector('button')!, () => this.onRaise(attr))
-      attrRows.appendChild(row)
     }
 
     const armory = parent.querySelector('#armory')!
@@ -381,15 +363,27 @@ export class Hud {
       card.className = 'item-card'
       card.dataset.kind = kind
       card.setAttribute('aria-label', `Equip ${w.noun}`)
-      card.innerHTML = `<canvas></canvas><small></small><b>${w.noun}</b><em>${ATTR_LABEL[w.mastery]}</em>`
+      card.innerHTML = `<canvas></canvas><small></small><b>${w.noun}</b><em>${FAMILY_LABEL[w.family]}</em>`
       tap(card, () => this.onEquip(kind))
       armory.appendChild(card)
     }
 
-    tap(parent.querySelector('#attr-tab')!, () => {
-      this.attrsOpen = !this.attrsOpen
-      ;(parent.querySelector('#stat-rows') as HTMLElement).hidden = this.attrsOpen
-      ;(parent.querySelector('#attr-rows') as HTMLElement).hidden = !this.attrsOpen
+    // Reset asks twice: the first tap arms it for a few seconds, the second erases everything.
+    const reset = parent.querySelector('#btn-reset') as HTMLButtonElement
+    tap(reset, () => {
+      if (performance.now() < this.resetArmed) {
+        this.resetArmed = 0
+        this.onReset()
+        return
+      }
+      this.resetArmed = performance.now() + 4000
+      reset.classList.add('armed')
+      reset.textContent = 'Tap again to erase everything'
+      window.setTimeout(() => {
+        if (performance.now() < this.resetArmed) return
+        reset.classList.remove('armed')
+        reset.textContent = 'Reset all progress (testing)'
+      }, 4100)
     })
 
     parent.querySelector('#btn-gear')!.addEventListener('pointerdown', (e) => {
@@ -822,24 +816,12 @@ export class Hud {
     if (open) this.markSlot()
   }
 
-  setStats(rows: { stat: Stat; value: number; fill: number }[]): void {
+  /** The four stats: the value (feeding shows in the hundredths) and what it gives. */
+  setStats(rows: { stat: Stat; value: number; effect: string }[]): void {
     for (const row of rows) {
       const el = this.root.querySelector(`.stat-row[data-stat="${row.stat}"]`)!
-      ;(el.querySelector('b') as HTMLElement).textContent = formatNum(row.value)
-      ;(el.querySelector('.bar > div') as HTMLElement).style.width = `${Math.max(0, Math.min(1, row.fill)) * 100}%`
-    }
-  }
-
-  /** Only the mastery for the equipped weapon type is shown; the others do nothing until that gear exists. */
-  setAttrs(fx: AttrStats, weapon: WeaponType, points: number): void {
-    this.root.querySelector('#attr-tab')!.textContent = this.attrsOpen ? 'Stats' : `Attributes · ${points}`
-    for (const attr of ATTRS) {
-      const el = this.root.querySelector(`.attr-row[data-attr="${attr}"]`) as HTMLElement
-      const mastery = attr === 'blade' || attr === 'blunt' || attr === 'claws'
-      el.hidden = mastery && attr !== weapon
-      el.querySelector('b')!.textContent = String(fx.level[attr])
-      el.querySelector('em')!.textContent = attrEffect(attr, fx)
-      ;(el.querySelector('button') as HTMLButtonElement).disabled = points <= 0
+      ;(el.querySelector('b') as HTMLElement).textContent = row.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      ;(el.querySelector('em') as HTMLElement).textContent = row.effect
     }
   }
 
@@ -917,10 +899,10 @@ export class Hud {
     const items = [
       `${formatNum(report.feeds)} creatures fed on`,
       `+${formatNum(report.blood)} Blood`,
-      `+${formatNum(report.strength)} Strength from thralls and bones`,
-      `+${formatNum(report.agility)} Agility from hounds`,
-      `+${formatNum(report.vitality)} Vitality from walkers`,
-      `+${formatNum(report.sorcery)} Sorcery from the miasma`,
+      `+${(report.strength * FEED_STEP).toFixed(2)} Strength from thralls and bones`,
+      `+${(report.agility * FEED_STEP).toFixed(2)} Agility from hounds`,
+      `+${(report.vitality * FEED_STEP).toFixed(2)} Vitality from walkers`,
+      `+${(report.sorcery * FEED_STEP).toFixed(2)} Sorcery from the miasma`,
     ]
     if (report.levels > 0) items.push(`You rose ${report.levels} level${report.levels === 1 ? '' : 's'}`)
     lines.innerHTML = items.map((t) => `<li>${t}</li>`).join('')

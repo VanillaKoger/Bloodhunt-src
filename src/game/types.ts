@@ -1,17 +1,11 @@
-import type { Attr } from './attributes'
 import type { ClawTierId } from './balance'
 import type { DistrictId, Purse, RiteId } from './nights'
 import type { LookSlot, WorkId } from './haven'
 import type { NightTally } from './marks'
 import type { WeaponKind } from './weapons'
 
-export type Stat =
-  | 'strength'
-  | 'fortitude'
-  | 'agility'
-  | 'sorcery'
-  | 'resistance'
-  | 'vitality'
+/** The hero's four stats. What each point is worth is in balance.ts (PER_STAT). */
+export type Stat = 'strength' | 'vitality' | 'agility' | 'sorcery'
 
 export type Slot = 'weapon' | 'cape' | 'coat' | 'boots'
 
@@ -19,14 +13,7 @@ export type SkillId = 'bats' | 'drain' | 'dash' | 'nova'
 
 export type EnemyKind = 'hound' | 'walker' | 'thrall' | 'spitter' | 'skeleton' | 'boss' | 'thug' | 'enforcer' | 'don'
 
-export const STATS: Stat[] = [
-  'strength',
-  'fortitude',
-  'agility',
-  'sorcery',
-  'resistance',
-  'vitality',
-]
+export const STATS: Stat[] = ['strength', 'vitality', 'agility', 'sorcery']
 
 export const SLOTS: Slot[] = ['weapon', 'cape', 'coat', 'boots']
 
@@ -82,9 +69,8 @@ export interface SaveData {
   /** The local day whose Omen has been met. */
   omenDay: string
   night: NightSave | null
+  /** Feeds per stat: every kill adds one to the stat its creature feeds, worth FEED_STEP of a point each. */
   stacks: Record<Stat, number>
-  /** Attribute points the player has spent. Base values live in attributes.ts. */
-  attrs: Record<Attr, number>
   gear: Record<Slot, number>
   /** The equipped weapon class. Its level is `gear.weapon`. */
   weapon: WeaponKind
