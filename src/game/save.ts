@@ -2,6 +2,7 @@ import { ATTRS, zeroAttrs } from './attributes'
 import { OFFLINE_CAP_SEC, OFFLINE_MIN_SEC, grantXp } from './balance'
 import type { OfflineReport, SaveData, Stat } from './types'
 import { SLOTS, STATS } from './types'
+import { isWeaponKind } from './weapons'
 
 const KEY = 'bloodhunt-save-v1'
 const BAK = 'bloodhunt-save-v1-bak'
@@ -15,6 +16,7 @@ export function freshSave(now = Date.now()): SaveData {
     stacks,
     attrs: zeroAttrs(),
     gear: { weapon: 1, cape: 1, coat: 1, boots: 1 },
+    weapon: 'claws',
     evolved: { weapon: false, cape: false, coat: false, boots: false },
     level: 1,
     xp: 0,
@@ -67,6 +69,7 @@ function sanitize(raw: unknown): SaveData | null {
       base.gear[s] = typeof v === 'number' && Number.isFinite(v) ? Math.max(1, Math.min(50, Math.floor(v))) : 1
     }
   }
+  if (isWeaponKind(raw.weapon)) base.weapon = raw.weapon
   if (isRecord(raw.evolved)) {
     for (const s of SLOTS) base.evolved[s] = raw.evolved[s] === true
   }

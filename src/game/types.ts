@@ -1,4 +1,5 @@
 import type { Attr } from './attributes'
+import type { WeaponKind } from './weapons'
 
 export type Stat =
   | 'strength'
@@ -34,6 +35,8 @@ export interface SaveData {
   /** Attribute points the player has spent. Base values live in attributes.ts. */
   attrs: Record<Attr, number>
   gear: Record<Slot, number>
+  /** The equipped weapon class. Its level is `gear.weapon`. */
+  weapon: WeaponKind
   evolved: Record<Slot, boolean>
   level: number
   xp: number

@@ -585,6 +585,7 @@ footer {
   position: absolute;
   inset: 0;
   z-index: 6;
+  overflow-y: auto;
   background: linear-gradient(180deg, rgba(8, 4, 14, 0.05) 0%, rgba(8, 4, 14, 0.12) 30%, rgba(12, 6, 18, 0.92) 48%, #10080f 100%);
 }
 
@@ -859,4 +860,48 @@ footer {
   .skill { width: 56px; height: 56px; }
   #skills { gap: 8px; }
   .stat-row { grid-template-columns: 78px 1fr 36px; font-size: 13px; }
+}
+
+/* Weapon item cards: one per class, shown while the weapon slot is selected. */
+#armory {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin: 8px 12px 0;
+}
+#armory[hidden] { display: none; }
+
+.item-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 4px 2px 5px;
+  border-radius: 10px;
+  border: 2px solid color-mix(in srgb, var(--tier) 45%, #3a2a30);
+  background: linear-gradient(180deg, rgba(40, 30, 44, 0.95), rgba(16, 8, 16, 0.95));
+  color: #f3e6c8;
+  line-height: 1.1;
+}
+.item-card canvas { width: 40px; height: 40px; display: block; }
+.item-card small { font-family: Cinzel, Palatino, serif; font-size: 8px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--tier); }
+.item-card b { font-size: 13px; }
+.item-card em { font-style: normal; font-size: 10px; color: #b9a58a; }
+.item-card.on {
+  border-color: var(--tier);
+  box-shadow: 0 0 0 1px var(--tier), 0 0 12px color-mix(in srgb, var(--tier) 55%, transparent);
+}
+.item-card.on::after {
+  content: 'EQUIPPED';
+  position: absolute;
+  top: -7px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--tier);
+  color: #10080f;
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
 }

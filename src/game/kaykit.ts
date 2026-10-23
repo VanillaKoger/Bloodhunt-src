@@ -3,10 +3,12 @@ import { addRim } from './polish'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import type { KenneyAnimState, KenneyDriver, Rig } from './models'
+import { WEAPON_KINDS, type WeaponKind } from './weapons'
 
 /**
  * Free-tier KayKit characters on the shared Rig_Medium skeleton.
- * The vampire is the Adventurers mage: pale head, solid red cape, a right-hand dagger.
+ * The vampire is the Adventurers mage: pale head, solid red cape, a right-hand weapon
+ * (claws, dagger, sword, or bone mace; see `equipWeapon` in models.ts).
  * Ghouls are the skeleton minion on the same clips.
  */
 
@@ -385,9 +387,21 @@ function fistMaterial(template: THREE.Object3D): THREE.MeshLambertMaterial {
   return mat
 }
 
-function attachDagger(slot: THREE.Object3D, template: THREE.Object3D, mat: THREE.MeshLambertMaterial): THREE.Group {
+/** How each weapon mesh sits in the right-hand slot. The slot's +Y is the character's forward. */
+const WEAPON_POSE: Record<WeaponKind, { pos: [number, number, number]; rot: [number, number, number]; scale: [number, number, number] }> = {
+  // fistweapon_A is a spiked knuckle guard sized for a bare fist; scaled up so the spikes clear the mage's mitten.
+  claws: { pos: [-0.03, 0, 0], rot: [0, 0, 0], scale: [1.9, 1.65, 1.65] },
+  // dagger_A is authored with the grip at the origin and the blade along +Y.
+  dagger: { pos: [0, 0, 0], rot: [0, 0, 0], scale: [1, 1, 1] },
+  // No sword is in the free pack, so the sword is dagger_A drawn out into a longer blade.
+  sword: { pos: [0, 0, 0], rot: [0, 0, 0], scale: [1.12, 1.75, 1.12] },
+  // bone_A lies along X, centered. Stood up on Y with one knuckle in the fist, it is a bone club.
+  mace: { pos: [0, 0.39, 0], rot: [0, 0, Math.PI / 2], scale: [1.45, 1.35, 1.35] },
+}
+
+function attachWeapon(slot: THREE.Object3D, kind: WeaponKind, template: THREE.Object3D, mat: THREE.MeshLambertMaterial): THREE.Group {
   const group = new THREE.Group()
-  group.name = 'dagger-r'
+  group.name = `weapon-${kind}`
   const model = template.clone(true)
   model.traverse((child) => {
     const mesh = child as THREE.Mesh
@@ -397,10 +411,10 @@ function attachDagger(slot: THREE.Object3D, template: THREE.Object3D, mat: THREE
     mesh.receiveShadow = false
     mesh.frustumCulled = false
   })
-  // dagger_A is authored with the grip at the origin and the blade along +Y.
-  // The hand slot's +Y is the character's forward, so the mesh sits as-is.
-  model.rotation.set(0, 0, 0)
-  model.scale.setScalar(1)
+  const pose = WEAPON_POSE[kind]
+  model.position.set(...pose.pos)
+  model.rotation.set(...pose.rot)
+  model.scale.set(...pose.scale)
   group.add(model)
   group.updateWorldMatrix(true, true)
   const best = new THREE.Vector3()
@@ -478,9 +492,8 @@ function wrap(model: THREE.Object3D, height: number, clips: Map<string, THREE.An
 function buildVampire(
   template: THREE.Object3D,
   clips: Map<string, THREE.AnimationClip>,
-  dagger: THREE.Object3D,
+  arms: Record<WeaponKind, { model: THREE.Object3D; mat: THREE.MeshLambertMaterial }>,
   pale: THREE.Texture,
-  blade: THREE.MeshLambertMaterial,
 ): Rig {
   const model = cloneSkinned(template) as THREE.Group
   const { cape } = paintVampire(model, pale)
@@ -490,10 +503,23 @@ function buildVampire(
   if (head && headMesh) faceDetails(model, head, headMesh)
   const claws: THREE.Object3D[] = []
   const right = bone(model, 'handslot.r')
-  if (right) claws.push(attachDagger(right, dagger, blade))
-  const rig = wrap(model, height, clips, true, claws, { claw: blade, cape })
+  const weapons = {} as Record<WeaponKind, { group: THREE.Group; mat: THREE.MeshLambertMaterial }>
+  if (right) {
+    for (const kind of WEAPON_KINDS) {
+      // Each mesh gets its own material: the tier tint is written onto whichever is equipped.
+      const mat = arms[kind].mat.clone()
+      mat.userData.flashable = true
+      addRim(mat)
+      const group = attachWeapon(right, kind, arms[kind].model, mat)
+      group.visible = kind === 'claws'
+      weapons[kind] = { group, mat }
+    }
+    claws.push(weapons.claws.group)
+  }
+  const rig = wrap(model, height, clips, true, claws, { claw: weapons.claws?.mat, cape })
   rig.root.userData.kayFist = true
   rig.root.userData.visual = HERO_SCALE
+  if (right) rig.root.userData.weapons = weapons
   return rig
 }
 
@@ -506,13 +532,15 @@ function buildGhoul(template: THREE.Object3D, clips: Map<string, THREE.Animation
 
 export async function loadKaykit(): Promise<KaykitCast> {
   const loader = new GLTFLoader()
-  const [mage, skel, combat, general, move, dagger] = await Promise.all([
+  const [mage, skel, combat, general, move, dagger, fist, boneClub] = await Promise.all([
     loader.loadAsync(asset('cc0/kaykit/mage.glb')),
     loader.loadAsync(asset('cc0/kaykit/skeleton-minion.glb')),
     loader.loadAsync(asset('cc0/kaykit/anim-combat.glb')),
     loader.loadAsync(asset('cc0/kaykit/anim-general.glb')),
     loader.loadAsync(asset('cc0/kaykit/anim-move.glb')),
     loader.loadAsync(asset('cc0/kaykit/dagger_A.gltf')),
+    loader.loadAsync(asset('cc0/kaykit/fistweapon_A.gltf')),
+    loader.loadAsync(asset('cc0/kaykit/bone_A.gltf')),
   ])
   const clips = new Map<string, THREE.AnimationClip>()
   for (const gltf of [combat, general, move]) {
@@ -522,8 +550,14 @@ export async function loadKaykit(): Promise<KaykitCast> {
   if (!map) throw new Error('KayKit mage is missing its texture')
   const pale = paleSkin(map)
   const blade = fistMaterial(dagger.scene)
+  const arms: Record<WeaponKind, { model: THREE.Object3D; mat: THREE.MeshLambertMaterial }> = {
+    claws: { model: fist.scene, mat: fistMaterial(fist.scene) },
+    dagger: { model: dagger.scene, mat: blade },
+    sword: { model: dagger.scene, mat: blade },
+    mace: { model: boneClub.scene, mat: fistMaterial(boneClub.scene) },
+  }
   return {
-    hero: () => buildVampire(mage.scene, clips, dagger.scene, pale, blade),
+    hero: () => buildVampire(mage.scene, clips, arms, pale),
     ghoul: () => buildGhoul(skel.scene, clips),
   }
 }
