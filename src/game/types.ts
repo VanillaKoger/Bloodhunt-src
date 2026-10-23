@@ -1,3 +1,5 @@
+import type { Attr } from './attributes'
+
 export type Stat =
   | 'strength'
   | 'fortitude'
@@ -29,6 +31,8 @@ export interface SaveData {
   v: 1
   blood: number
   stacks: Record<Stat, number>
+  /** Attribute points the player has spent. Base values live in attributes.ts. */
+  attrs: Record<Attr, number>
   gear: Record<Slot, number>
   evolved: Record<Slot, boolean>
   level: number

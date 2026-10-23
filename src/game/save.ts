@@ -1,3 +1,4 @@
+import { ATTRS, zeroAttrs } from './attributes'
 import { OFFLINE_CAP_SEC, OFFLINE_MIN_SEC, grantXp } from './balance'
 import type { OfflineReport, SaveData, Stat } from './types'
 import { SLOTS, STATS } from './types'
@@ -12,6 +13,7 @@ export function freshSave(now = Date.now()): SaveData {
     v: 1,
     blood: 0,
     stacks,
+    attrs: zeroAttrs(),
     gear: { weapon: 1, cape: 1, coat: 1, boots: 1 },
     evolved: { weapon: false, cape: false, coat: false, boots: false },
     level: 1,
@@ -51,6 +53,12 @@ function sanitize(raw: unknown): SaveData | null {
     for (const s of STATS) {
       const v = raw.stacks[s]
       base.stacks[s] = typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0
+    }
+  }
+  if (isRecord(raw.attrs)) {
+    for (const a of ATTRS) {
+      const v = raw.attrs[a]
+      base.attrs[a] = typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0
     }
   }
   if (isRecord(raw.gear)) {
