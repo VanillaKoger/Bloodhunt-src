@@ -1,7 +1,7 @@
 import { WORK_STEP } from './haven'
+import { PACE } from './pace'
 import { applyAttributes } from './attributes'
 import type { EnemyKind, SaveData, SkillId, Slot, Stat, WeaponRank } from './types'
-import { NORTH_ALLEY_SHIFT } from './world'
 import { SLOTS } from './types'
 import { WEAPONS, weaponInterval, type WeaponKind } from './weapons'
 import { powerScale } from './nights'
@@ -238,129 +238,6 @@ export const GROWTH: Record<Foe, Growth> = {
   enforcer: { role: 'wall', armor: 8, hp: 0.08, dmg: 0.05, speed: 0.006, speedCap: 1.7, armorStep: 0.9, reward: REWARD_STEP, return: 10, cap: 2, capBoss: 2 },
 }
 
-/**
- * A fixed Slums spawn point for a pod of enemies. A pod wakes when the hero
- * comes near, rolls one of its mixes, idles on its spot, turns on the hero
- * together, and comes back (with a fresh roll) a while after it is wiped out.
- */
-export interface PodDef {
-  name: string
-  x: number
-  z: number
-  /** Metres from the center the members stand at. */
-  spread: number
-  mixes: { kinds: Foe[]; weight: number }[]
-  /** Seconds after the last member falls before the pod is back. */
-  respawn: number
-}
-
-export const PODS: PodDef[] = [
-  {
-    name: 'Court rabble',
-    x: 4.0,
-    z: -6.4,
-    spread: 1.3,
-    mixes: [
-      { kinds: ['hound', 'hound', 'walker'], weight: 3 },
-      { kinds: ['thug', 'thug'], weight: 2 },
-      { kinds: ['hound', 'hound', 'hound'], weight: 2 },
-    ],
-    respawn: 30,
-  },
-  {
-    name: 'Crypt steps',
-    x: -5.4,
-    z: 6.8,
-    spread: 1.2,
-    mixes: [
-      { kinds: ['walker', 'hound'], weight: 3 },
-      { kinds: ['thrall', 'hound'], weight: 2 },
-      { kinds: ['thug', 'walker'], weight: 2 },
-      { kinds: ['skeleton', 'skeleton'], weight: 1 },
-    ],
-    respawn: 34,
-  },
-  {
-    name: 'North pocket',
-    x: 0.8,
-    z: 13.6 + NORTH_ALLEY_SHIFT,
-    spread: 0.9,
-    mixes: [
-      { kinds: ['hound', 'hound'], weight: 3 },
-      { kinds: ['thrall'], weight: 2 },
-    ],
-    respawn: 28,
-  },
-  {
-    name: 'Chapel court',
-    x: -37.4,
-    z: 19.4,
-    spread: 1.4,
-    mixes: [
-      { kinds: ['walker', 'walker', 'thrall'], weight: 3 },
-      { kinds: ['thug', 'thug', 'thug'], weight: 2 },
-    ],
-    respawn: 40,
-  },
-  {
-    name: 'King\'s yard',
-    x: -44.2,
-    z: 27.2,
-    spread: 1.2,
-    mixes: [
-      { kinds: ['thrall', 'hound', 'hound'], weight: 3 },
-      { kinds: ['spitter', 'walker'], weight: 2 },
-      { kinds: ['skeleton', 'hound'], weight: 1 },
-    ],
-    respawn: 40,
-  },
-  {
-    name: 'South pocket',
-    x: -8.0,
-    z: -24.15,
-    spread: 0.9,
-    mixes: [
-      { kinds: ['spitter', 'hound'], weight: 3 },
-      { kinds: ['thug', 'thug'], weight: 2 },
-    ],
-    respawn: 32,
-  },
-  {
-    name: 'Bend pocket',
-    x: -20.9,
-    z: -34.0,
-    spread: 0.9,
-    mixes: [
-      { kinds: ['hound', 'hound', 'hound'], weight: 3 },
-      { kinds: ['walker', 'spitter'], weight: 2 },
-    ],
-    respawn: 32,
-  },
-  {
-    name: 'Bone yard',
-    x: -25.0,
-    z: -47.2,
-    spread: 1.4,
-    mixes: [
-      { kinds: ['walker', 'walker', 'spitter'], weight: 3 },
-      { kinds: ['thrall', 'thrall'], weight: 2 },
-      { kinds: ['skeleton', 'skeleton', 'skeleton'], weight: 1 },
-    ],
-    respawn: 45,
-  },
-  {
-    name: 'Sewer mouth',
-    x: -19.6,
-    z: -42.4,
-    spread: 1.2,
-    mixes: [
-      { kinds: ['thug', 'thug', 'spitter'], weight: 3 },
-      { kinds: ['walker', 'hound', 'hound'], weight: 2 },
-    ],
-    respawn: 40,
-  },
-]
-
 /** A pod wakes once the hero is this close to its spot. */
 export const POD_WAKE = 24
 /** A pod that saw or felt the hero hunts together for this long. */
@@ -447,7 +324,7 @@ export function nextHeldTier(save: SaveData): ClawTier | null {
 
 /** Kills to go from `rank` to `rank + 1` inside a tier. */
 export function rankKills(tier: ClawTier, rank: number): number {
-  return Math.round(tier.kills * (1 + rank * 0.5))
+  return Math.round(tier.kills * PACE * (1 + rank * 0.5))
 }
 
 /** A weapon's rank in the current tier. A rank earned in an older tier reads as a fresh start. */
@@ -491,7 +368,7 @@ export function gearName(slot: Slot, level: number): string {
 
 /** Blood for the next gear level from `level`. Early levels come quickly; the last ten take nights each. */
 export function upgradeCost(level: number): number {
-  return Math.max(1, Math.round(GEAR_COST * Math.pow(level, GEAR_COST_POW)))
+  return Math.max(1, Math.round(GEAR_COST * PACE * Math.pow(level, GEAR_COST_POW)))
 }
 
 export const GEAR_COST = 11.5
@@ -499,7 +376,7 @@ export const GEAR_COST_POW = 2.35
 
 /** XP for the next hero level from `level`. Grows a little faster than linear, so late levels take days. */
 export function xpNeed(level: number): number {
-  return Math.round(XP_BASE + XP_SCALE * Math.pow(level, XP_POW))
+  return Math.round(XP_BASE + XP_SCALE * PACE * Math.pow(level, XP_POW))
 }
 
 export const XP_BASE = 30
@@ -529,7 +406,7 @@ export function sheetStat(save: SaveData, stat: Stat): number {
 
 /** Combat contribution of feed stacks: each feed adds a sliver, and the whole climb's worth tops out near 60. */
 export function stackPower(stacks: number): number {
-  return (STACK_MAX * stacks) / (stacks + STACK_HALF)
+  return (STACK_MAX * stacks) / (stacks + STACK_HALF * PACE)
 }
 
 export const STACK_MAX = 60
@@ -680,22 +557,27 @@ export interface BossSheet {
   blood: number
 }
 
+/** Share of the night's bite a boss takes, as a power. */
+const BOSS_BITE = 0.75
+
 /** A night's danger steps (and bite) on top of a boss's own formula. */
 function atSteps(bp: BossSheet, steps: number, bite: number, tough: number): BossSheet {
   return {
     ...bp,
     hp: Math.round(bp.hp * (1 + steps * 0.06) * tough),
-    dmg: bp.dmg * (1 + steps * 0.04) * bite,
-    pound: bp.pound * (1 + steps * 0.04) * bite,
+    // Bosses already grow per step; they take a softer share of the night's bite than the trash.
+    dmg: bp.dmg * (1 + steps * 0.04) * Math.pow(bite, BOSS_BITE),
+    pound: bp.pound * (1 + steps * 0.04) * Math.pow(bite, BOSS_BITE),
     xp: Math.round(bp.xp * (1 + steps * REWARD_STEP)),
     blood: Math.round(bp.blood * (1 + steps * REWARD_STEP)),
   }
 }
 
 
-export function bossBlueprint(save: SaveData, steps = 0, bite = 1, tough = 1): BossSheet {
+/** `kills` is how often this boss has already fallen. */
+export function bossBlueprint(save: SaveData, kills: number, steps = 0, bite = 1, tough = 1): BossSheet {
   const str = combatStat(save, 'strength')
-  const n = Math.min(BOSS_GROWTH_KILLS, save.bossKills)
+  const n = Math.min(BOSS_GROWTH_KILLS, kills)
   return atSteps(
     {
       hp: Math.round((460 + str * 5.5) * (1 + n * 0.03)),
@@ -712,9 +594,9 @@ export function bossBlueprint(save: SaveData, steps = 0, bite = 1, tough = 1): B
 }
 
 /** Next district boss. Separate from the Rat King so Slums scaling stays put. */
-export function donBlueprint(save: SaveData, steps = 0, bite = 1, tough = 1): BossSheet {
+export function donBlueprint(save: SaveData, kills: number, steps = 0, bite = 1, tough = 1): BossSheet {
   const str = combatStat(save, 'strength')
-  const n = Math.min(BOSS_GROWTH_KILLS, save.donKills)
+  const n = Math.min(BOSS_GROWTH_KILLS, kills)
   return atSteps(
     {
       hp: Math.round((680 + str * 6.2) * (1 + n * 0.03)),

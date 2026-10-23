@@ -28,7 +28,7 @@ Kenney Animated Characters / Mixamo / Quaternius character-anim libraries were s
 
 The game opens in the Haven, a walled courtyard of its own. Walk up to a station and press its prompt (or E / Enter):
 
-- **Night Gate** (north wall): pick a district and a danger (I–V), and step through. Each danger shows its three marks; clearing them opens the next danger. The Mob District opens once the Slums marks at Danger III are cleared and the Rat King has fallen five times. Tonight's Omen, one extra objective a day, sits at the top.
+- **Night Gate** (north wall): pick one of the ten maps and one of its three zones, and step through. Each zone shows its three marks; clearing them opens the next zone, and clearing the last zone (and felling its boss a few times) opens the next map. Tonight's Omen, one extra objective a day, sits at the top.
 - **Range** (west wall): three practice dummies, bare, mailed (12 armor), and plated (30 armor). They never fall. Each shows a live DPS readout (the last 5 seconds), the total, and the top hit, and the reading starts over after a few seconds without a hit. Weapons, swings, and all four blood powers work on them, Blood Drain included.
 - **Blood Altar**: blood powers and rites (Vitae).
 - **Armory**: the gear and weapons menu.
@@ -53,8 +53,12 @@ Elites drop double, and the Rat King and the Don drop a pile of each. Spending h
 
 ## The climb
 
-The climb to peak is paced for six to eight months of one sitting a day (about four nights). Every gain is small. New dangers and the Mob District open through marks: several runs at a danger plus two bonus objectives done in a single night, counted only when you get out. `PROGRESSION.md` has the curves and the timeline, and `npm run pacing` replays the climb on the current numbers.
+The climb is paced for eight to ten months of one 30-minute sitting a day: every map cleared around month 8, peak power around month 9. Every gain is small. New zones and maps open through marks: several runs in a zone plus two bonus objectives done in a single night, counted only when you get out. `PROGRESSION.md` has the curves, the 30-tier ladder, and the timeline, and `npm run pacing` replays the climb on the current numbers.
+
+## The maps
+
+Ten maps, three zones each, one zone a night: the Slums, the Mob District, the Black Docks, the Night Market, the Blackwood, Hollow Graves, Ashen Manor, the Cathedral of Dawn, the Deep Catacombs, and the Crimson Spire. Each has its own theme, its own tinted roster, and a boss in its last zone. The Slums and the Mob District's square are hand-built; the rest are placeholder layouts and art (`src/game/maps.ts`, `src/game/mapart.ts`) waiting on real assets.
 
 ## The Slums
 
-Enemies stand in pods at nine fixed spots across the three courts and the alleys between them. A pod wakes when the hero comes within 24 m, rolls one of its mixes, and keeps to its spot until one of them sees the hero or is hit; then the whole pod hunts together. A wiped pod comes back 28–45 seconds later with a fresh roll. From Danger III a pod brings one more of its lead. The roster is plague hounds (fast, in packs), plague walkers, feral thralls, the miasma (stands off and spits bile), mob thugs who came down from the district, and now and then a few skeletons. The Rat King, a bloated plague lord with a crown, holds court in the chapel yard. See `ENEMY-STATS.md` for numbers and the pod list.
+The Slums' three zones are its three courts: the Court in the middle, the Bone Yard down the south alley, and the Chapel Yard up the north alley. Enemies stand in pods at fixed spots in each, four per zone. A pod wakes when the hero comes within 24 m, rolls one of its mixes, and keeps to its spot until one of them sees the hero or is hit; then the whole pod hunts together. A wiped pod comes back 24–34 seconds later with a fresh roll. The roster is plague hounds (fast, in packs), plague walkers, feral thralls, the miasma (stands off and spits bile), mob thugs who came down from the district, and now and then a few skeletons. The Rat King, a bloated plague lord with a crown, holds court in the chapel yard. See `ENEMY-STATS.md` for numbers and the pod list.

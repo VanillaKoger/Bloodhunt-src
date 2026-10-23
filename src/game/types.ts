@@ -43,7 +43,7 @@ export interface WeaponRank {
 /** A night in progress, so a reload drops the hero back into it. */
 export interface NightSave {
   district: DistrictId
-  /** 0-based index into DANGERS. */
+  /** Zone of the map, 0-based. */
   danger: number
   elapsed: number
   carried: Purse
@@ -72,11 +72,13 @@ export interface SaveData {
   /** Vitae ranks on each blood power. */
   powers: Record<SkillId, number>
   rites: Record<RiteId, number>
-  /** Highest danger unlocked in each district, 0-based. */
+  /** Highest zone open in each map, 0-based (0 to 2). A map itself opens by its gate (see marks.ts). */
   danger: Record<DistrictId, number>
   extracts: number
   /** Progress on each mark, keyed district.danger.index: extraction counts, or 1 once done. */
   marks: Record<string, number>
+  /** Layout of the marks the save was written with. */
+  marksV: number
   /** The local day whose Omen has been met. */
   omenDay: string
   night: NightSave | null
@@ -92,10 +94,10 @@ export interface SaveData {
   level: number
   xp: number
   kills: number
-  bossKills: number
-  /** Kills in the mob district. The Slums boss still keys off `kills`. */
+  /** Falls of each map's boss. */
+  bosses: Record<DistrictId, number>
+  /** Kills in the mob district. */
   mobKills: number
-  donKills: number
   killRate: number
   lastActiveAt: number
   muted: boolean

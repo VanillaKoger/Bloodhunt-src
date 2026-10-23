@@ -1,4 +1,5 @@
 import type { Currency, Purse } from './nights'
+import { PACE } from './pace'
 
 /**
  * The Haven: a walled courtyard east of the Slums where every night starts
@@ -129,7 +130,7 @@ export const WORKS: Record<WorkId, WorkDef> = {
 export function workCost(id: WorkId, level: number): Partial<Purse> {
   const out: Partial<Purse> = {}
   for (const [k, v] of Object.entries(WORKS[id].base) as [Currency, number][]) {
-    out[k] = Math.round(v * Math.pow(level + 1, WORK_POW))
+    out[k] = Math.round(v * PACE * Math.pow(level + 1, WORK_POW))
   }
   return out
 }

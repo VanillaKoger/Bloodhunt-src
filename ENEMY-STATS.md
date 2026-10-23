@@ -2,18 +2,9 @@
 
 Enemies no longer grow with the hero's level. They grow with the night: the district, the danger picked at the Haven, and how long the night has run (see `src/game/nights.ts`). Stats are stamped when a creature spawns or returns.
 
-Steps = `district steps + danger steps + minutes into the night × 0.9`
+Steps = `the zone's tier steps + minutes into the night × 0.9`
 
-| | Danger I | II | III | IV | V |
-| --- | --- | --- | --- | --- | --- |
-| Danger steps | 0 | 10 | 24 | 42 | 64 |
-| Bite (damage ×) | ×1 | ×1.35 | ×1.9 | ×2.7 | ×3.8 |
-| Tough (HP ×) | ×1 | ×1.2 | ×1.5 | ×1.9 | ×2.4 |
-| Blood multiplier | ×1 | ×1.3 | ×1.7 | ×2.2 | ×2.8 |
-| Elite chance | 5% | 6% | 7% | 8% | 9% |
-| Material drops | ×1 | ×1.3 | ×1.6 | ×2 | ×2.5 |
-
-The Slums add 0 steps. The Mob District adds 22 steps, ×1.4 bite, ×1.25 tough, and ×1.35 Blood on top, so its first danger sits near the Slums at III. Elites have ×2.4 HP, ×1.3 damage, triple Blood, always drop their material (doubled), and drop Ichor. The Rat King and the Don keep their own formulas below, scaled by the same steps (+6% HP, +4% damage and pound, +2% XP and Blood per step) and by the night's bite and tough. See `PROGRESSION.md` for how the dangers open.
+Each of the 30 zones is a tier on one ladder, from the Slums' Court (tier 1: 0 steps, bite ×1, tough ×1) to the Elder's Throne (tier 30: 92 steps, bite ×6, tough ×3.3). Bite multiplies enemy damage and tough multiplies enemy HP on top of the steps. The full table is in `PROGRESSION.md`. Elites have ×2.4 HP, ×1.3 damage, triple Blood, always drop their material (doubled), and drop Ichor. Bosses keep their own formulas below, scaled by the same steps (+6% HP, +4% damage and pound, +2% XP and Blood per step), by the tier's tough, and by its bite to the power 0.75.
 
 The tables below are at 0 steps (the old "level 1, no clears" row) and use the same growth per step.
 
@@ -53,7 +44,7 @@ The miasma is the only ranged one: it holds off at range and spits bile bolts, a
 
 Hounds stay the fragile pack and gain speed first. Walkers and skeletons are the HP walls. Thralls hit hardest for their size. The miasma scales its bolts. Reward growth is the same number for XP and Blood.
 
-Worked example, a Slums night at Danger III (steps = 24, bite ×1.9, tough ×1.5):
+Worked example at 24 steps, bite ×1.9, tough ×1.5 (about tier 8, the Black Docks' Warehouses):
 
 | Creature | HP | Damage | Speed | Armor | XP | Blood |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -78,31 +69,21 @@ n = his falls so far, counted up to 20. On top of these, the night's steps, bite
 - Armor = 2 for each of his first ten falls, plus 0.6 per night step
 - Returns 75 seconds after he falls, and the kill still grants +2 to every stat
 
-The Don runs the same way from 680 + Strength × 6.2 HP, 14 damage, and 20 pound.
+The heavier sheet (680 + Strength × 6.2 HP, 14 damage, 20 pound) is used by the Countess, the Inquisitor, and the Elder. Every other boss uses the Rat King's.
 
 He is a bloated plague walker at boss size, with a crown, a cape of rags, and claws. At 60% HP he calls two plague hounds from the rim of his ring. On top of his Blood, Ichor, and Vitae he drops 10 Bile, 6 Bone, and 4 Brass (times the danger's material multiplier). The Don drops 14 Brass and 4 Bone.
 
 ## Where they appear
 
-Slums enemies come in pods at fixed spots (`PODS` in `src/game/balance.ts`). A pod wakes when the hero is within 24 m of its spot (but not closer than 5.5 m, so nothing lands on the hero), rolls one mix by weight, and stands its members around the spot. Idle members drift no more than 2.2 m off it. When one member sees the hero or takes a hit, the whole pod hunts together with a 15 m reach for 6 seconds, refreshed while any of them still sees or feels the hero. A wiped pod is gone for its "back after" time, then wakes again with a fresh roll. From Danger III a pod brings one extra of its first kind.
+Enemies come in pods at fixed spots in each zone (`pods` on each zone in `src/game/maps.ts`). A pod wakes when the hero is within 24 m of its spot (but not closer than 5.5 m, so nothing lands on the hero), rolls one mix by weight, and stands its members around the spot. Idle members drift no more than 2.2 m off it. When one member sees the hero or takes a hit, the whole pod hunts together with a 15 m reach for 6 seconds, refreshed while any of them still sees or feels the hero. A wiped pod is gone for its respawn time, then wakes again with a fresh roll. From tier 10 a pod brings one extra of its lead, and from tier 20 two.
 
-| Pod | Spot | Back after | Mixes (weight) |
-| --- | --- | --- | --- |
-| Court rabble | (4.00, -6.40) | 30s | Plague Hound + Plague Hound + Plague Walker (3); Mob Thug + Mob Thug (2); Plague Hound + Plague Hound + Plague Hound (2) |
-| Crypt steps | (-5.40, 6.80) | 34s | Plague Walker + Plague Hound (3); Feral Thrall + Plague Hound (2); Mob Thug + Plague Walker (2); Skeleton + Skeleton (1) |
-| North pocket | (0.80, 15.91) | 28s | Plague Hound + Plague Hound (3); Feral Thrall (2) |
-| Chapel court | (-37.40, 19.40) | 40s | Plague Walker + Plague Walker + Feral Thrall (3); Mob Thug + Mob Thug + Mob Thug (2) |
-| King's yard | (-44.20, 27.20) | 40s | Feral Thrall + Plague Hound + Plague Hound (3); Miasma + Plague Walker (2); Skeleton + Plague Hound (1) |
-| South pocket | (-8.00, -24.15) | 32s | Miasma + Plague Hound (3); Mob Thug + Mob Thug (2) |
-| Bend pocket | (-20.90, -34.00) | 32s | Plague Hound + Plague Hound + Plague Hound (3); Plague Walker + Miasma (2) |
-| Bone yard | (-25.00, -47.20) | 45s | Plague Walker + Plague Walker + Miasma (3); Feral Thrall + Feral Thrall (2); Skeleton + Skeleton + Skeleton (1) |
-| Sewer mouth | (-19.60, -42.40) | 40s | Mob Thug + Mob Thug + Miasma (3); Plague Walker + Plague Hound + Plague Hound (2) |
+The Slums' pods are hand-placed in its three courts. The placeholder zones place five pods from the room layout, clear of the start, the way out, and the boss ring, and roll their mixes from the map's roster (a pack animal, a brute, a hunter, and one that stands off).
 
 | Mark | Place | Point |
 | --- | --- | --- |
-| Rat King | Ring in the chapel yard (Zone 2) | center (−40.20, 24.20), radius 1.95 |
+| Rat King | Ring in the chapel yard (Zone 3) | center (−40.20, 24.20), radius 1.95 |
 | Litter | Rim of that ring | (−39.10, 23.25), (−41.35, 25.05) |
 
-The mob district keeps its own returning thugs and enforcers on the square.
+Every other boss is called out at the ring in its map's last zone. At 60% HP it calls two of the zone's own to its side.
 
-`?spawns=1` draws the pod rings, their names, and the king ring. It is a debug view, not part of a normal fight.
+`?spawns=1` draws the Slums' pod rings, their names, and the king ring. It is a debug view, not part of a normal fight.

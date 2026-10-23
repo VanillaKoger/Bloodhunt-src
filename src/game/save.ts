@@ -1,8 +1,9 @@
 import { ATTRS, zeroAttrs } from './attributes'
 import { CLAW_TIERS, LEVEL_CAP, OFFLINE_CAP_SEC, OFFLINE_FEEDS_PER_HOUR, OFFLINE_MIN_SEC, clawTier, grantXp } from './balance'
-import { CURRENCIES, DANGERS, DISTRICT_IDS, RITES, RITE_IDS, RITE_STEP, POWER_MAX, emptyPurse, type Purse } from './nights'
+import { CURRENCIES, DISTRICT_IDS, RITES, RITE_IDS, RITE_STEP, POWER_MAX, TIERS, emptyPurse, type DistrictId, type Purse } from './nights'
+import { ZONE_COUNT } from './maps'
 import { COSMETICS, DEFAULT_LOOK, LOOK_SLOTS, WORK_IDS, WORK_MAX, type WorkId } from './haven'
-import { emptyTally, type NightTally } from './marks'
+import { MARKS_VERSION, bestTier, emptyTally, type NightTally } from './marks'
 import type { NightSave, OfflineReport, SaveData, Stat, WeaponRank } from './types'
 import { SKILLS, SLOTS, STATS } from './types'
 import { WEAPON_KINDS, isWeaponKind, type WeaponKind } from './weapons'
@@ -29,11 +30,12 @@ export function freshSave(now = Date.now()): SaveData {
     wardrobe: [],
     wear: { ...DEFAULT_LOOK },
     marks: {},
+    marksV: MARKS_VERSION,
     omenDay: '',
     weaponTier: 'teethling',
     powers: { bats: 0, drain: 0, dash: 0, nova: 0 },
     rites: { night: 0, pact: 0, frenzy: 0, scent: 0, thrall: 0 },
-    danger: { slums: 0, mob: 0 },
+    danger: Object.fromEntries(DISTRICT_IDS.map((id) => [id, 0])) as Record<DistrictId, number>,
     extracts: 0,
     night: null,
     stacks,
@@ -45,9 +47,8 @@ export function freshSave(now = Date.now()): SaveData {
     level: 1,
     xp: 0,
     kills: 0,
-    bossKills: 0,
+    bosses: Object.fromEntries(DISTRICT_IDS.map((id) => [id, 0])) as Record<DistrictId, number>,
     mobKills: 0,
-    donKills: 0,
     killRate: 0,
     lastActiveAt: now,
     muted: false,
@@ -68,9 +69,11 @@ function sanitize(raw: unknown): SaveData | null {
   base.level = Math.max(1, Math.min(LEVEL_CAP, Math.floor(num('level', 1))))
   base.xp = Math.max(0, num('xp', 0))
   base.kills = Math.max(0, Math.floor(num('kills', 0)))
-  base.bossKills = Math.max(0, Math.floor(num('bossKills', 0)))
+  // Saves from before the ten maps kept the two bosses' falls on their own fields.
+  base.bosses.slums = Math.max(0, Math.floor(num('bossKills', 0)))
+  base.bosses.mob = Math.max(0, Math.floor(num('donKills', 0)))
+  if (isRecord(raw.bosses)) for (const id of DISTRICT_IDS) base.bosses[id] = Math.max(0, Math.floor(Number(raw.bosses[id]) || 0))
   base.mobKills = Math.max(0, Math.floor(num('mobKills', 0)))
-  base.donKills = Math.max(0, Math.floor(num('donKills', 0)))
   base.killRate = Math.max(0, num('killRate', 0))
   base.lastActiveAt = num('lastActiveAt', Date.now())
   base.muted = raw.muted === true
@@ -102,11 +105,19 @@ function sanitize(raw: unknown): SaveData | null {
   const int = (v: unknown, max: number) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(max, Math.floor(v))) : 0)
   if (isRecord(raw.powers)) for (const id of SKILLS) base.powers[id] = int(raw.powers[id], POWER_MAX)
   if (isRecord(raw.rites)) for (const id of RITE_IDS) base.rites[id] = int(raw.rites[id], RITES[id].costs.length)
-  if (isRecord(raw.danger)) for (const id of DISTRICT_IDS) base.danger[id] = int(raw.danger[id], DANGERS.length - 1)
+  // Marks moved from five dangers to three zones a map. Older saves start the marks over,
+  // keeping the Slums open as deep as they had it.
+  const zonesSave = raw.marksV === MARKS_VERSION
+  if (isRecord(raw.danger)) for (const id of DISTRICT_IDS) base.danger[id] = int(raw.danger[id], ZONE_COUNT - 1)
+  if (!zonesSave) for (const id of DISTRICT_IDS) if (id !== 'slums') base.danger[id] = 0
   if (isRecord(raw.works)) for (const id of WORK_IDS) base.works[id] = int(raw.works[id], WORK_MAX)
-  if (isRecord(raw.marks)) {
-    for (const [key, v] of Object.entries(raw.marks)) if (/^(slums|mob)\.[0-4]\.[0-2]$/.test(key)) base.marks[key] = int(v, 99)
+  if (isRecord(raw.marks) && zonesSave) {
+    for (const [key, v] of Object.entries(raw.marks)) {
+      const [id, zone, index] = key.split('.')
+      if ((DISTRICT_IDS as string[]).includes(id) && /^[0-2]$/.test(zone) && /^[0-2]$/.test(index)) base.marks[key] = int(v, 99)
+    }
   }
+  base.marksV = MARKS_VERSION
   if (typeof raw.omenDay === 'string') base.omenDay = raw.omenDay.slice(0, 10)
   if (Array.isArray(raw.wardrobe)) {
     base.wardrobe = COSMETICS.filter((c) => (raw.wardrobe as unknown[]).includes(c.id)).map((c) => c.id)
@@ -148,7 +159,7 @@ function readNight(raw: unknown): NightSave | null {
   if (isRecord(raw.carried)) for (const k of CURRENCIES) carried[k] = n(raw.carried[k])
   return {
     district,
-    danger: Math.min(DANGERS.length - 1, Math.floor(n(raw.danger))),
+    danger: Math.min(ZONE_COUNT - 1, Math.floor(n(raw.danger))),
     elapsed: n(raw.elapsed),
     carried,
     kills: Math.floor(n(raw.kills)),
@@ -228,8 +239,8 @@ export function takeOfflineGains(save: SaveData, now: number): OfflineReport | n
     save.stacks[stat] += n
     gained[stat] = n
   })
-  // Thralls hunt the Slums at the deepest danger the hero has opened there.
-  const pay = DANGERS[save.danger.slums].reward
+  // Thralls hunt at the deepest tier the hero has opened.
+  const pay = TIERS[bestTier(save)].reward
   const blood = Math.round(feeds * 5 * pay)
   const xp = Math.round(feeds * 3 * pay)
   save.blood += blood

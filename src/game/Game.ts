@@ -1,6 +1,5 @@
 import * as THREE from 'three'
 import {
-  ARENA_R,
   BOSS_MATERIALS,
   ENEMIES,
   MATERIAL_LABEL,
@@ -9,10 +8,8 @@ import {
   MAX_GEAR,
   NODE,
   SKILL_META,
-  GROWTH,
   KING_ARENA,
   LITTER,
-  PODS,
   POD_ALERT,
   POD_LEASH,
   POD_WAKE,
@@ -42,7 +39,6 @@ import {
   type CombatProfile,
   type Foe,
   type Material,
-  type PodDef,
 } from './balance'
 import { ATTRS, POINTS_PER_LEVEL, attrPointsLeft, effectiveAttrs, weaponType, type Attr } from './attributes'
 import { Hud } from './hud'
@@ -67,9 +63,7 @@ import { loadSave, takeOfflineGains, writeSave } from './save'
 import { Sfx } from './sfx'
 import type { EnemyKind, NightSave, SaveData, SkillId, Slot } from './types'
 import {
-  DANGERS,
   DAWN_WARN,
-  DISTRICTS,
   DISTRICT_IDS,
   ELITE,
   EXTRACT_CHANNEL,
@@ -95,6 +89,9 @@ import {
   nightLength,
   matDrop,
   nightBite,
+  tierIndex,
+  tierOf,
+  zoneName,
   nightTough,
   nightReward,
   nightSteps,
@@ -129,6 +126,8 @@ import {
   type WorkId,
 } from './haven'
 import { buildYard, type YardHandle } from './yard'
+import { buildMapArt, type MapArtHandle } from './mapart'
+import { MAPS, MAP_IDS, ZONE_COUNT, inZone, nearestInZone, type MapDef, type PodDef, type ZoneDef } from './maps'
 import {
   MARKS,
   SWIFT_SECONDS,
@@ -142,13 +141,14 @@ import {
   marksCleared,
   marksTotal,
   omenCounts,
+  bestTier,
   omenFor,
   scoreMarks,
   tallyMeets,
   type NightTally,
 } from './marks'
 import { createStage, makeDrift, qualityLow, type Stage } from './polish'
-import { DISTRICT_OPEN, FOG_COLOR, MOB_ARRIVE, MOB_GATE, MOB_Z, NORTH_ALLEY_SHIFT, SLUM_GATE, SLUM_RETURN, buildWorld, inSlums, nearestSlum, setNodeVisual, type WorldHandle } from './world'
+import { DISTRICT_OPEN, FOG_COLOR, MOB_ARRIVE, MOB_GATE, SLUM_GATE, SLUM_RETURN, buildWorld, setNodeVisual, type WorldHandle } from './world'
 
 /**
  * Root yaw for the hero's `facing`. Hero facing is kept so the body looks
@@ -266,6 +266,7 @@ interface NightRun {
 
 interface Beacon {
   district: DistrictId
+  zone: number
   x: number
   z: number
   label: string
@@ -295,24 +296,6 @@ interface Floater {
   max: number
 }
 
-const PAD_LAYOUT: [number, number][] = [
-  [2.4, 2.6],
-  [-4.8, 2.8],
-  [1.4, -3.2],
-  [-5.2, -6.2],
-  [0.2, 6.8],
-  [-2.4, -6.6],
-  [-40.4, 22.4],
-  [-36.2, 26.2],
-  [-25.2, -47.6],
-  [-20.4, -44.2],
-  [-20.9, -34.0],
-  [-8.0, -24.15],
-  [0.8, 13.6],
-]
-const MOB_PADS: [number, number][] = PAD_LAYOUT.map(([x, z]) => [x * 0.85, z * 0.85 + MOB_Z])
-const PADS: [number, number][] = PAD_LAYOUT.map(([x, z]) => (x === 0.8 && z === 13.6 ? [x, z + NORTH_ALLEY_SHIFT] : [x, z]))
-
 interface PodRuntime {
   members: Actor[]
   /** Seconds until a wiped pod can wake again. */
@@ -336,6 +319,26 @@ const FALLBACK: Record<Foe, () => Rig> = {
   enforcer: createEnforcer,
 }
 
+/**
+ * Recolors a creature for the map it is hunted in. Materials are cloned first
+ * so a model's shared material is never tinted twice.
+ */
+function tintRig(rig: Rig, tint: number): void {
+  const color = new THREE.Color(tint)
+  rig.root.traverse((child) => {
+    const mesh = child as THREE.Mesh
+    if (!mesh.isMesh) return
+    const src = mesh.material as THREE.MeshLambertMaterial
+    if (Array.isArray(src) || !src?.color || src.transparent) return
+    if (!src.userData.flashable && !src.map) return
+    const own = src.clone()
+    own.userData = { ...src.userData }
+    own.color.multiply(color)
+    if (own.emissive) own.emissive.multiply(color)
+    mesh.material = own
+  })
+}
+
 function rollMix(mixes: PodDef['mixes']): Foe[] {
   let roll = Math.random() * mixes.reduce((sum, mix) => sum + mix.weight, 0)
   for (const mix of mixes) {
@@ -345,20 +348,11 @@ function rollMix(mixes: PodDef['mixes']): Foe[] {
   return mixes[0].kinds
 }
 
-/** The mob district's square at dusk. Thugs and enforcers come back to the pads when they fall. */
-const MOB_OPENING: [Exclude<EnemyKind, 'boss' | 'don'>, number, number][] = [
-  ['thug', 1.15, MOB_Z + 0.35],
-  ['thug', -1.45, MOB_Z - 0.7],
-  ['enforcer', 2.35, MOB_Z + 1.45],
-  ['thug', -2.55, MOB_Z + 1.15],
-  ['enforcer', 0.35, MOB_Z - 2.05],
-]
-
 const GEAR_BLURB: Record<Slot, (lv: number, evolved: boolean) => string> = {
-  weapon: (lv, ev) => `+${4 * lv + (ev ? 8 : 0)} Strength · +${lv} Vitality`,
-  cape: (lv, ev) => `+${3 * lv + (ev ? 8 : 0)} Sorcery · +${2 * lv} Resistance`,
-  coat: (lv, ev) => `+${4 * lv + (ev ? 8 : 0)} Fortitude · +${3 * lv} Vitality`,
-  boots: (lv, ev) => `+${4 * lv + (ev ? 8 : 0)} Agility · +${lv} Fortitude`,
+  weapon: (lv, ev) => `+${2 * lv + (ev ? 8 : 0)} Strength · +${formatNum(lv * 0.5)} Vitality`,
+  cape: (lv, ev) => `+${formatNum(1.5 * lv + (ev ? 8 : 0))} Sorcery · +${lv} Resistance`,
+  coat: (lv, ev) => `+${2 * lv + (ev ? 8 : 0)} Fortitude · +${formatNum(1.5 * lv)} Vitality`,
+  boots: (lv, ev) => `+${2 * lv + (ev ? 8 : 0)} Agility · +${formatNum(lv * 0.5)} Fortitude`,
 }
 
 export class Game {
@@ -470,6 +464,7 @@ export class Game {
   /** The gear menu was opened from the Haven board, so closing it goes back there. */
   private backToHaven = false
   private yard!: YardHandle
+  private mapArt!: MapArtHandle
   /** The Haven station the hero stands at, if any. */
   private station: StationDef | null = null
   /** Hits on each range dummy, by actor id: when and how much. */
@@ -483,7 +478,7 @@ export class Game {
   private boss: Actor | null = null
   private don: Actor | null = null
   private donCd = 0
-  private district: 'slums' | 'mob' = 'slums'
+  private district: DistrictId = 'slums'
   private travelCd = 0
   private gateNag = 0
   private moveTries = 0
@@ -552,6 +547,8 @@ export class Game {
     this.world = buildWorld(this.scene, kenney ? (scene, blocks) => kenney.dress(scene, blocks) : undefined)
     this.yard = buildYard(this.scene, qualityLow())
     this.world.obstacles.push(...this.yard.obstacles)
+    this.mapArt = buildMapArt(this.scene)
+    this.world.obstacles.push(...this.mapArt.obstacles)
     for (const id of ['crypt', 'fountain'] as const) {
       const node = this.world.nodes[id]
       node.group.userData.readyAt = 0
@@ -723,7 +720,7 @@ export class Game {
 
     const params = new URLSearchParams(location.search)
     this.district = 'slums'
-    if (this.save.bossKills > 0) {
+    if (this.save.bosses.slums > 0) {
       this.world.gateGlow.emissiveIntensity = 1.7
       this.world.gateGlow.color.setHex(0xff4ad8)
     }
@@ -795,7 +792,7 @@ export class Game {
     if (this.save.night) this.beginNight(this.save.night.district, this.save.night.danger, this.save.night)
     else if (this.foes) {
       this.beginNight('slums', 0)
-      if (params.has('don') && this.save.bossKills > 0) this.beginNight('mob', 0)
+      if (params.has('don') && districtOpen(this.save, 'mob')) this.beginNight('mob', ZONE_COUNT - 1)
     } else if (!report) this.hud.toast('The Haven. Walk to the Night Gate to hunt.')
     this.hud.setNightHud(null)
     this.updateHud()
@@ -1285,15 +1282,6 @@ export class Game {
         if (e.deathT > 0.4) {
           e.rig.root.visible = false
           if (e.bar) e.bar.style.display = 'none'
-          if (e.returns && e.pod < 0 && e.kind !== 'boss' && e.kind !== 'don' && e.kind !== 'hero') {
-            const kind = e.kind
-            e.respawn -= dt
-            if (e.respawn <= 0 && this.livingKind(kind) < this.kindCap(kind)) {
-              const pad = this.pickPad('mob')
-              if (this.clearSpawn(pad.x, pad.z, e.radius)) this.revive(e, pad.x, pad.z)
-              else e.respawn = 1.2
-            }
-          }
         }
         continue
       }
@@ -1333,7 +1321,7 @@ export class Game {
       const dist = Math.hypot(hero.x - e.x, hero.z - e.z)
       if (e.kind === 'hero') continue
       const bossing = e.kind === 'boss' || e.kind === 'don'
-      const sheet = e.kind === 'boss' || e.kind === 'don' ? this.rivalBlueprint(e.kind) : null
+      const sheet = e.kind === 'boss' || e.kind === 'don' ? this.rivalBlueprint() : null
       const def = e.kind === 'boss' || e.kind === 'don' ? null : ENEMIES[e.kind]
       const speed = sheet ? sheet.speed : e.speed
       const range = bossing ? 1.45 : def!.range
@@ -1350,7 +1338,7 @@ export class Game {
           this.poundRing.visible = false
           this.shake = Math.max(this.shake, 0.45)
           if (!hero.dead && this.iframe <= 0 && Math.hypot(hero.x - e.poundX, hero.z - e.poundZ) < 2.25) {
-            this.damageHero(this.rivalBlueprint(e.kind === 'don' ? 'don' : 'boss').pound, true)
+            this.damageHero(this.rivalBlueprint().pound, true)
           }
           this.burst(e.poundX, 0.3, e.poundZ, 0xff4428, 16, 3.4, 0.45)
         }
@@ -1396,16 +1384,21 @@ export class Game {
           }
           if (!e.added && e.hp < e.maxHp * 0.6) {
             e.added = true
-            if (e.kind === 'don') {
-              this.spawnEnemy('thug', e.x + 0.9, e.z + 0.35)
-              this.spawnEnemy('enforcer', e.x - 0.85, e.z + 0.4)
-              this.hud.toast('The Don calls his crew')
-            } else {
+            if (this.district === 'slums') {
               for (const mark of LITTER) {
                 const spot = this.litterSpot(mark.x, mark.z)
                 if (spot) this.spawnEnemy('hound', spot.x, spot.z, { returns: false })
               }
               this.hud.toast('The king calls his litter')
+            } else {
+              // Everyone else calls two of the zone's own to his side.
+              const pods = this.zonePods()
+              const kinds = pods[0]?.mixes[0]?.kinds ?? (['thug'] as Foe[])
+              for (const [i, side] of [-1, 1].entries()) {
+                const spot = this.clampArena(e.x + side * 1.1, e.z + 0.5)
+                if (this.clearSpawn(spot.x, spot.z, 0.5)) this.spawnEnemy(kinds[i % kinds.length], spot.x, spot.z)
+              }
+              this.hud.toast(`${MAPS[this.district].boss.name} calls for help`)
             }
           }
         }
@@ -1838,23 +1831,11 @@ export class Game {
     this.hud.setLevel(this.save.level, this.save.level >= LEVEL_CAP ? 1 : this.save.xp / xpNeed(this.save.level))
     for (const id of SKILLS) this.hud.setSkill(id, this.cooldowns[id], this.cdMax[id])
     const boss = this.localBoss()
-    this.hud.setBoss(!!boss, boss ? boss.hp / boss.maxHp : 0, boss?.kind === 'don' ? 'THE DON' : 'RAT KING')
+    const rival = MAPS[this.district].boss
+    this.hud.setBoss(!!boss, boss ? boss.hp / boss.maxHp : 0, rival.name.toUpperCase())
     const playing = this.mode === 'play' && !this.hud.modalOpen()
-    if (this.district === 'mob') {
-      const canSummon = this.hunting() && !boss && this.donCd <= 0 && this.save.mobKills >= 10 && playing
-      this.hud.setSummon(
-        canSummon,
-        this.save.donKills > 0 ? 'The Don wants a rematch.' : 'The Don is waiting in the club.',
-        this.save.donKills > 0 ? 'Face him again' : 'Knock on the club',
-      )
-    } else {
-      const canSummon = this.hunting() && !boss && this.summonCd <= 0 && this.save.kills >= 10 && playing
-      this.hud.setSummon(
-        canSummon,
-        this.save.bossKills > 0 ? 'Something bloated stirs in the chapel yard again.' : 'The Rat King holds court in the chapel yard.',
-        this.save.bossKills > 0 ? 'Face him again' : 'Call him out',
-      )
-    }
+    const fell = this.save.bosses[this.district] > 0
+    this.hud.setSummon(this.canSummon() && !boss && playing, fell ? `${rival.name} wants a rematch.` : rival.line, fell ? rival.again : rival.call)
     if (night && !night.over) {
       const left = night.length - night.elapsed
       this.hud.setNightHud({
@@ -1862,7 +1843,7 @@ export class Game {
         warn: night.dawn || left <= DAWN_WARN,
         frenzy: this.frenzyMult(),
         frenzyFill: night.frenzy / frenzyCap(this.save.rites.frenzy),
-        danger: DANGERS[night.danger].label,
+        danger: `${night.danger + 1} · ${zoneName(night.district, night.danger)}`,
       })
       this.placeExtractMarker()
     } else {
@@ -1988,56 +1969,45 @@ export class Game {
     e.dead = true
     e.deathT = 0
     e.hp = 0
-    const kind = e.kind
-    e.respawn = e.returns && e.pod < 0 && kind !== 'boss' && kind !== 'don' && kind !== 'hero' ? GROWTH[kind].return : 0
+    e.respawn = 0
     this.sfx.play('kill')
     this.noteFrenzy()
     if (e.kind === 'boss' || e.kind === 'don') {
       const don = e.kind === 'don'
-      const bp = don ? donBlueprint(this.save, this.steps(), this.bite(), this.tough()) : bossBlueprint(this.save, this.steps(), this.bite(), this.tough())
+      const map = MAPS[this.district]
+      const bp = this.rivalBlueprint()
       const blood = Math.round(bp.blood * profile(this.save).bloodMult * this.nightPay() * this.frenzyMult())
-      const loot = bossLoot(don ? 'don' : 'boss', this.night?.danger ?? 0)
-      if (don) {
-        this.save.donKills += 1
-        this.don = null
-        this.donCd = 75
-      } else {
-        this.save.bossKills += 1
-        this.boss = null
-        this.summonCd = 75
+      const loot = bossLoot(map.boss.sheet, this.tier())
+      this.save.bosses[this.district] += 1
+      if (don) this.don = null
+      else this.boss = null
+      this.summonCd = 75
+      this.donCd = 75
+      if (this.district === 'slums') {
         this.world.gateGlow.emissiveIntensity = 1.7
         this.world.gateGlow.color.setHex(0xff4ad8)
       }
       this.save.kills += 1
       if (this.night) {
         this.night.kills += 1
-        // The district's own boss: the Rat King in the Slums, the Don on the square.
-        if ((don ? 'mob' : 'slums') === this.night.district) this.night.tally.king = true
+        this.night.tally.king = true
         this.checkMarks()
       }
       this.rankWeapon(5)
       for (const s of STATS) this.save.stacks[s] += 2
       const levels = grantXp(this.save, bp.xp)
       this.poundRing.visible = false
-      this.hud.banner(don ? 'THE DON FALLS' : 'RAT KING FALLS')
-      this.hud.toast(
-        don
-          ? this.save.donKills === 1
-            ? 'The district goes quiet'
-            : 'The Don falls again'
-          : this.save.bossKills === 1
-            ? 'The Slums remember your name'
-            : 'The king falls again',
-      )
+      const falls = this.save.bosses[this.district]
+      this.hud.banner(`${map.boss.name.toUpperCase()} FALLS`)
+      this.hud.toast(falls === 1 ? `${map.label} remembers your name` : `${map.boss.name} falls again (${falls})`)
       this.floatAt(e.x, 2.2, e.z, `+${blood} Blood`, 'blood')
       this.floatAt(e.x, 1.7, e.z, '+2 all', 'all')
       this.spawnDrops(e.x, e.z, blood)
       this.spawnDrops(e.x, e.z, loot.ichor, 'ichor')
       this.spawnDrops(e.x, e.z, loot.vitae, 'vitae')
-      for (const [mat, n] of Object.entries(BOSS_MATERIALS[don ? 'don' : 'boss']) as [Material, number][]) {
-        this.spawnDrops(e.x, e.z, matDrop(n, this.night?.danger ?? 0), mat)
+      for (const [mat, n] of Object.entries(BOSS_MATERIALS[map.boss.sheet === 'don' ? 'don' : 'boss']) as [Material, number][]) {
+        this.spawnDrops(e.x, e.z, matDrop(n, this.district, this.night?.danger ?? 0), mat)
       }
-      if (!don && this.save.bossKills === 1) this.hud.toast('The way to the Mob District opens at the Haven')
       if (levels) this.onLevel(levels)
       this.noteKill()
       this.persist()
@@ -2064,14 +2034,14 @@ export class Game {
     this.floatAt(e.x, 0.4, e.z, `+${blood}`, 'blood')
     this.spawnDrops(e.x, e.z, blood)
     if (Math.random() < def.drop.chance || e.elite) {
-      const n = matDrop(def.drop.amount * (e.elite ? 2 : 1), this.night?.danger ?? 0)
+      const n = matDrop(def.drop.amount * (e.elite ? 2 : 1), this.district, this.night?.danger ?? 0)
       if (n > 0) {
         this.spawnDrops(e.x, e.z, n, def.drop.mat)
         this.floatAt(e.x, e.barY + 0.2, e.z, `+${n} ${MATERIAL_LABEL[def.drop.mat]}`, def.drop.mat)
       }
     }
     if (e.elite) {
-      const ichor = eliteIchor(this.night?.danger ?? 0)
+      const ichor = eliteIchor(this.tier())
       this.spawnDrops(e.x, e.z, ichor, 'ichor')
       this.floatAt(e.x, e.barY + 0.4, e.z, `+${ichor} Ichor`, 'ichor')
     }
@@ -2201,7 +2171,7 @@ export class Game {
   /** Rolls a night spawn (or a nest's return) as an elite. Elites are bigger, tougher, and pay Ichor. */
   private rollElite(e: Actor): void {
     const night = this.night
-    const elite = !!night && !night.over && !e.dummy && Math.random() < eliteChance(night.danger, this.save.rites.scent)
+    const elite = !!night && !night.over && !e.dummy && Math.random() < eliteChance(night.district, night.danger, this.save.rites.scent)
     e.elite = elite
     e.rig.root.scale.setScalar(elite ? ELITE.scale : 1)
     e.bar.classList.toggle('elite', elite)
@@ -2225,7 +2195,24 @@ export class Game {
 
   private resetPods(): void {
     for (const pod of this.pods) for (const e of pod.members) this.dropEnemy(e)
-    this.pods = PODS.map(() => ({ members: [], timer: 0, alert: 0, rolls: 0 }))
+    this.pods = this.zonePods().map(() => ({ members: [], timer: 0, alert: 0, rolls: 0 }))
+  }
+
+  /** The night's zone, or null at the Haven. */
+  private zoneDef(): ZoneDef | null {
+    const night = this.night
+    return night ? MAPS[night.district].zones[night.danger] : null
+  }
+
+  /** Pods of the night's zone. */
+  private zonePods(): PodDef[] {
+    return this.zoneDef()?.pods ?? []
+  }
+
+  /** The night's tier on the ladder: 0 for the Slums' Court, up to 29. */
+  private tier(): number {
+    const night = this.night
+    return night ? tierIndex(night.district, night.danger) : 0
   }
 
   /** Takes an enemy out of the field and the enemy list for good. */
@@ -2265,7 +2252,7 @@ export class Game {
     this.drops = []
     for (const b of this.bolts) this.scene.remove(b.mesh)
     this.bolts = []
-    this.pods = PODS.map(() => ({ members: [], timer: 0, alert: 0, rolls: 0 }))
+    this.pods = []
     this.lockId = null
     this.aimId = null
   }
@@ -2293,7 +2280,7 @@ export class Game {
   /** Dusk: the hero leaves the Haven for a district at a danger, or picks a saved night back up. */
   private beginNight(district: DistrictId, danger: number, resume?: NightSave): void {
     if (!districtOpen(this.save, district)) {
-      this.hud.toast(DISTRICTS[district].lockText)
+      this.hud.toast(districtGate(this.save, district).map((g) => g.text).join('. '))
       return
     }
     danger = Math.max(0, Math.min(danger, this.save.danger[district]))
@@ -2319,17 +2306,16 @@ export class Game {
       tally: resume?.tally ? { ...resume.tally } : emptyTally(),
       said: [],
     }
-    const def = DISTRICTS[district]
-    this.placeHero(def.start.x, def.start.z)
-    if (district === 'slums') {
-      this.resetPods()
-    } else {
-      for (const [kind, x, z] of MOB_OPENING) this.spawnEnemy(kind, x, z)
-    }
-    const label = def.label.toUpperCase()
-    this.hud.setDistrict(label)
-    this.hud.banner(label)
-    this.hud.toast(resume ? 'The night goes on' : `Danger ${DANGERS[danger].label}. Reach a way out before dawn.`)
+    const map = MAPS[district]
+    const zone = map.zones[danger]
+    this.placeHero(zone.start.x, zone.start.z)
+    this.resetPods()
+    this.fogBase.setHex(map.palette.fog)
+    this.tintDawn()
+    const label = map.label.toUpperCase()
+    this.hud.setDistrict(`${label} · ${danger + 1}`)
+    this.hud.banner(zone.name.toUpperCase())
+    this.hud.toast(resume ? 'The night goes on' : `${map.label}, Zone ${danger + 1}. Reach a way out before dawn.`)
     this.sfx.play('boss')
     this.persist()
   }
@@ -2386,7 +2372,7 @@ export class Game {
   private nearestExtract(): { beacon: Beacon; d: number } | null {
     let best: { beacon: Beacon; d: number } | null = null
     for (const beacon of this.beacons) {
-      if (beacon.district !== this.district) continue
+      if (beacon.district !== this.district || beacon.zone !== this.night?.danger) continue
       const d = Math.hypot(beacon.x - this.hero.x, beacon.z - this.hero.z)
       if (!best || d < best.d) best = { beacon, d }
     }
@@ -2396,7 +2382,7 @@ export class Game {
   private extractNight(): void {
     const night = this.night
     if (!night || night.over) return
-    const bonus = DANGERS[night.danger].vitae
+    const bonus = tierOf(night.district, night.danger).vitae
     const got = emptyPurse()
     for (const k of CURRENCIES) {
       got[k] = Math.round(night.carried[k]) + (k === 'vitae' ? bonus : 0)
@@ -2405,7 +2391,8 @@ export class Game {
     this.save.extracts += 1
     // Marks and the Omen only count for a hunter who gets out.
     const tally = { ...night.tally, blood: night.carried.blood }
-    const wasMobOpen = districtOpen(this.save, 'mob')
+    const next = MAP_IDS[MAP_IDS.indexOf(night.district) + 1]
+    const wasNextOpen = next ? districtOpen(this.save, next) : true
     const { done, opened } = scoreMarks(this.save, night.district, night.danger, tally)
     const marks: string[] = []
     for (const mark of done) {
@@ -2419,8 +2406,8 @@ export class Game {
       marks.push(`Omen: ${markText(omen.def, night.district)}`)
     }
     let unlock: string | null = null
-    if (opened != null) unlock = `Danger ${DANGERS[opened].label} opens in ${DISTRICTS[night.district].label}`
-    if (!wasMobOpen && districtOpen(this.save, 'mob')) unlock = `${unlock ? `${unlock}. ` : ''}The Mob District opens`
+    if (opened != null) unlock = `${zoneName(night.district, opened)} opens in ${MAPS[night.district].label}`
+    if (next && !wasNextOpen && districtOpen(this.save, next)) unlock = `${unlock ? `${unlock}. ` : ''}${MAPS[next].label} opens`
     this.burst(this.hero.x, 1, this.hero.z, 0x9fe0ff, 24, 3, 0.7)
     this.finishNight('extracted', got, emptyPurse(), bonus, unlock, marks)
   }
@@ -2482,8 +2469,8 @@ export class Game {
     this.hud.setNightHud(null)
     this.hud.showSummary({
       outcome,
-      district: DISTRICTS[night.district].label,
-      danger: DANGERS[night.danger].label,
+      district: MAPS[night.district].label,
+      danger: `Zone ${night.danger + 1} · ${zoneName(night.district, night.danger)}`,
       banked,
       lost,
       bonusVitae,
@@ -2507,6 +2494,7 @@ export class Game {
     this.district = 'slums'
     this.placeHero(HAVEN_START.x, HAVEN_START.z)
     this.hud.setDistrict('THE HAVEN')
+    this.fogBase.setHex(FOG_COLOR)
     this.tintDawn()
     this.persist()
   }
@@ -2519,6 +2507,7 @@ export class Game {
   /** Finds the station in reach, lights it, and keeps the range readouts current. */
   private updateHaven(dt: number): void {
     this.yard.update(dt)
+    this.mapArt.update(dt)
     let near: StationDef | null = null
     if (this.inHaven() && !this.hero.dead) {
       let best = STATION_REACH
@@ -2567,12 +2556,18 @@ export class Game {
       extracts: save.extracts,
       districts: DISTRICT_IDS.map((id) => ({
         id,
-        label: DISTRICTS[id].label,
-        blurb: DISTRICTS[id].blurb,
+        label: MAPS[id].label,
+        blurb: MAPS[id].blurb,
+        theme: MAPS[id].theme,
+        roster: Object.values(MAPS[id].names).join(', '),
+        boss: MAPS[id].boss.name,
         locked: !districtOpen(save, id),
-        lockText: DISTRICTS[id].lockText,
-        dangers: DANGERS.map((d, i) => ({
-          label: d.label,
+        lockText: MAPS[id].theme,
+        dangers: MAPS[id].zones.map((zone, i) => ({
+          label: String(i + 1),
+          name: zone.name,
+          zoneBlurb: zone.blurb,
+          tier: tierIndex(id, i) + 1,
           reward: nightReward(id, i),
           unlocked: i <= save.danger[id],
           marks: MARKS[id][i].map((def, j) => ({
@@ -2589,10 +2584,9 @@ export class Game {
       })),
       omen: (() => {
         const omen = omenFor(save)
-        const where = DISTRICT_IDS.filter((id) => districtOpen(save, id))
-          .map((id) => `${DISTRICTS[id].label.replace('The ', '')} ${DANGERS[Math.max(0, save.danger[id] - 1)].label}+`)
-          .join(' or ')
-        return { text: markText(omen.def, 'slums').replace('the Rat King', 'a district boss'), reward: omen.reward, done: save.omenDay === omen.day, where }
+        const deep = bestTier(save)
+        const where = `tier ${Math.max(1, deep - 2)}+`
+        return { text: markText(omen.def, 'slums'), reward: omen.reward, done: save.omenDay === omen.day, where }
       })(),
       marksDone: marksCleared(save),
       marksTotal: marksTotal(),
@@ -2805,7 +2799,8 @@ export class Game {
     const ringGeo = new THREE.RingGeometry(EXTRACT_RADIUS - 0.16, EXTRACT_RADIUS, 40)
     const columnGeo = new THREE.CylinderGeometry(0.45, 0.7, 10, 18, 1, true)
     for (const id of DISTRICT_IDS) {
-      for (const point of DISTRICTS[id].extracts) {
+      MAPS[id].zones.forEach((zoneDef, zone) => {
+      for (const point of zoneDef.extracts) {
         const group = new THREE.Group()
         group.position.set(point.x, 0, point.z)
         const ring = new THREE.Mesh(
@@ -2822,8 +2817,9 @@ export class Game {
         group.add(ring, column)
         group.visible = false
         this.scene.add(group)
-        this.beacons.push({ district: id, x: point.x, z: point.z, label: point.label, group, column, ring })
+        this.beacons.push({ district: id, zone, x: point.x, z: point.z, label: point.label, group, column, ring })
       }
+      })
     }
   }
 
@@ -2834,7 +2830,7 @@ export class Game {
     const out = live ? this.nearestExtract() : null
     const pulse = 0.5 + 0.5 * Math.sin(this.sessionT * 3)
     for (const beacon of this.beacons) {
-      beacon.group.visible = live && beacon.district === this.district
+      beacon.group.visible = live && beacon.district === this.district && beacon.zone === night!.danger
       if (!beacon.group.visible) continue
       const on = out?.beacon === beacon && night!.channel > 0
       ;(beacon.column.material as THREE.MeshBasicMaterial).opacity = (on ? 0.4 : 0.16) + pulse * 0.08
@@ -2908,53 +2904,55 @@ export class Game {
   }
 
   private trySummon(): void {
+    this.summonRival()
+  }
+
+  /** A map's boss can be called out in its last zone, once the night has put down a few of his own. */
+  private canSummon(): boolean {
+    const night = this.night
+    if (!night || night.over || night.danger !== ZONE_COUNT - 1) return false
+    if (this.localBoss() || this.summonCd > 0) return false
+    return night.kills >= 8
+  }
+
+  /** Builds the map's boss rig: a hand-made one for the Rat King and the Don, a restyled pack character otherwise. */
+  private rivalRig(map: MapDef): Rig {
+    const b = map.boss
+    if (b.base === 'don') return this.kenney ? this.kenney.don() : createDon()
+    if (b.base === 'king' || !this.kenney) return this.kenney ? this.kenney.boss() : createBoss()
+    return this.kenney.rival(b.base, b.look ?? {})
+  }
+
+  private summonRival(force = false): void {
     if (!this.hunting()) return
-    if (this.district === 'mob') this.summonDon()
-    else this.summonKing()
-  }
-
-  private summonKing(force = false): void {
-    if (!this.hunting() || this.district !== 'slums') return
-    if (this.boss && !this.boss.dead) return
-    if (!force && (this.paused() || this.summonCd > 0 || this.save.kills < 10)) return
-    const bp = bossBlueprint(this.save, this.steps(), this.bite(), this.tough())
-    const spot = this.kingSpot()
-    const boss = this.makeActor('boss', this.kenney ? this.kenney.boss() : createBoss(), spot.x, spot.z, bp.hp, 0.78, 2.45)
-    boss.armor = bossArmor(this.save.bossKills, this.steps())
-    boss.dmg = bp.dmg
-    boss.speed = bp.speed
-    boss.rewardXp = bp.xp
-    boss.rewardBlood = bp.blood
-    boss.intro = 0.85
-    boss.poundCd = 2.2
-    this.enemies.push(boss)
-    this.boss = boss
+    if (!force && (this.paused() || !this.canSummon())) return
+    if (this.localBoss()) return
+    const map = MAPS[this.district]
+    const don = map.boss.base === 'don'
+    const bp = this.rivalBlueprint()
+    const spot = this.district === 'slums' ? this.kingSpot() : this.arenaSpot()
+    const rival = this.makeActor(don ? 'don' : 'boss', this.rivalRig(map), spot.x, spot.z, bp.hp, don ? 0.82 : 0.78, don ? 2.55 : 2.45)
+    rival.armor = bossArmor(this.save.bosses[this.district], this.steps())
+    rival.dmg = bp.dmg
+    rival.speed = bp.speed
+    rival.rewardXp = bp.xp
+    rival.rewardBlood = bp.blood
+    rival.intro = 0.85
+    rival.poundCd = 2.2
+    this.enemies.push(rival)
+    if (don) this.don = rival
+    else this.boss = rival
     this.sfx.play('boss')
     this.shake = 0.5
-    this.hud.banner('RAT KING')
+    this.hud.banner(map.boss.name.toUpperCase())
     this.hud.setSummon(false, '', '')
   }
 
-  private summonDon(force = false): void {
-    if (!this.hunting() || this.district !== 'mob') return
-    if (!force && (this.paused() || this.don || this.donCd > 0 || this.save.mobKills < 10)) return
-    if (this.don && !this.don.dead) return
-    const bp = donBlueprint(this.save, this.steps(), this.bite(), this.tough())
-    const spot = this.ahead()
-    const don = this.makeActor('don', this.kenney ? this.kenney.don() : createDon(), spot.x, spot.z, bp.hp, 0.82, 2.55)
-    don.armor = bossArmor(this.save.donKills, this.steps())
-    don.dmg = bp.dmg
-    don.speed = bp.speed
-    don.rewardXp = bp.xp
-    don.rewardBlood = bp.blood
-    don.intro = 0.85
-    don.poundCd = 2.2
-    this.enemies.push(don)
-    this.don = don
-    this.sfx.play('boss')
-    this.shake = 0.5
-    this.hud.banner('THE DON')
-    this.hud.setSummon(false, '', '')
+  /** The boss ring of the night's zone, nudged clear of the hero. */
+  private arenaSpot(): { x: number; z: number } {
+    const arena = this.zoneDef()?.arena ?? this.ahead()
+    if (Math.hypot(arena.x - this.hero.x, arena.z - this.hero.z) > 3) return arena
+    return this.ahead()
   }
 
   private ahead(): { x: number; z: number } {
@@ -3001,7 +2999,7 @@ export class Game {
     const scale = Math.max(40, ...rows.map((r) => r.value))
     for (const row of rows) row.fill = row.value / scale
     this.hud.setStats(rows)
-    this.hud.setFeeds(this.save.kills, this.save.bossKills > 0)
+    this.hud.setFeeds(this.save.kills, this.save.bosses.slums > 0)
     this.hud.setAttrs(effectiveAttrs(this.save), weaponType(this.save), attrPointsLeft(this.save))
     const slot = this.hud.selected
     const lv = this.save.gear[slot]
@@ -3302,6 +3300,8 @@ export class Game {
     opts?: { pod?: number; returns?: boolean },
   ): Actor {
     const rig = this.kenney ? this.kenney[kind]() : FALLBACK[kind]()
+    const tint = this.night ? MAPS[this.night.district].tints[kind] : undefined
+    if (tint != null) tintRig(rig, tint)
     const def = ENEMIES[kind]
     const stats = enemyStats(kind, this.steps(), this.bite(), this.tough())
     const actor = this.makeActor(kind, rig, x, z, stats.hp, def.radius, def.barY)
@@ -3311,48 +3311,24 @@ export class Game {
     actor.rewardXp = stats.xp
     actor.rewardBlood = stats.blood
     actor.pod = opts?.pod ?? -1
-    actor.returns = opts?.returns ?? (kind === 'thug' || kind === 'enforcer')
+    actor.returns = opts?.returns ?? false
     this.rollElite(actor)
     this.enemies.push(actor)
     return actor
   }
 
-  private revive(e: Actor, x: number, z: number): void {
-    if (e.kind === 'hero' || e.kind === 'boss' || e.kind === 'don') return
-    const stats = enemyStats(e.kind, this.steps(), this.bite(), this.tough())
-    e.x = x
-    e.z = z
-    e.dead = false
-    e.deathT = 0
-    e.maxHp = stats.hp
-    e.hp = stats.hp
-    e.dmg = stats.dmg
-    e.speed = stats.speed
-    e.armor = stats.armor
-    e.rewardXp = stats.xp
-    e.rewardBlood = stats.blood
-    e.barLag = 1
-    e.barT = 0
-    e.barFlash = 0
-    e.pending = null
-    e.knockT = 0
-    e.rig.root.visible = true
-    e.rig.bob.scale.set(1, 1, 1)
-    e.rig.bob.position.y = 0
-    this.rollElite(e)
-    this.placeActor(e)
-  }
-
   /**
-   * Slums pods: each spot wakes a rolled group once the hero comes near,
+   * The zone's pods: each spot wakes a rolled group once the hero comes near,
    * and a wiped pod comes back with a fresh roll after its respawn time.
    */
   private tickPods(dt: number): void {
-    if (!this.hunting() || this.district !== 'slums') return
+    if (!this.hunting()) return
     const hero = this.hero
-    const danger = this.night?.danger ?? 0
+    const tier = this.tier()
+    const defs = this.zonePods()
     this.pods.forEach((pod, index) => {
-      const def = PODS[index]
+      const def = defs[index]
+      if (!def) return
       const alive = pod.members.filter((e) => !e.dead)
       if (alive.length > 0) {
         pod.alert = Math.max(0, pod.alert - dt)
@@ -3379,8 +3355,8 @@ export class Game {
       const away = Math.hypot(hero.x - def.x, hero.z - def.z)
       if (away > POD_WAKE || away < 5.5) return
       const kinds = [...rollMix(def.mixes)]
-      // Deeper dangers bring one more of the pod's lead.
-      if (danger >= 2) kinds.push(kinds[0])
+      // Deeper tiers bring more of the pod's lead: one more from tier 10, two from tier 20.
+      for (let i = 0; i < Math.floor(tier / 10); i++) kinds.push(kinds[i % kinds.length])
       kinds.forEach((kind, i) => {
         const a = (i / kinds.length) * Math.PI * 2 + Math.random() * 0.5
         const r = kinds.length > 1 ? def.spread : 0
@@ -3408,7 +3384,8 @@ export class Game {
   /** Where an idle pod member should drift back to, if it strayed off its spot. */
   private podHome(e: Actor): { x: number; z: number } | null {
     if (e.pod < 0) return null
-    const def = PODS[e.pod]
+    const def = this.zonePods()[e.pod]
+    if (!def) return null
     return Math.hypot(e.x - def.x, e.z - def.z) > POD_LEASH ? { x: def.x, z: def.z } : null
   }
 
@@ -3459,58 +3436,26 @@ export class Game {
     return null
   }
 
-  private kindCap(kind: Exclude<EnemyKind, 'boss' | 'don'>): number {
-    const bossUp =
-      kind === 'thug' || kind === 'enforcer' ? !!(this.don && !this.don.dead) : !!(this.boss && !this.boss.dead)
-    const growth = GROWTH[kind]
-    return bossUp ? growth.capBoss : growth.cap
-  }
-
-  private livingKind(kind: Actor['kind']): number {
-    let n = 0
-    for (const e of this.enemies) {
-      if (!e.dead && !e.dummy && e.kind === kind) n++
-    }
-    return n
-  }
-
-  private pickPad(home: 'slums' | 'mob'): { x: number; z: number } {
-    const pads = home === 'mob' ? MOB_PADS : PADS
-    let best = pads[0]
-    let bestD = -1
-    for (const [x, z] of pads) {
-      const d = Math.hypot(x - this.hero.x, z - this.hero.z)
-      if (d > bestD && this.canOccupy(x, z, 0.4)) {
-        bestD = d
-        best = [x, z]
-      }
-    }
-    return { x: best[0] + (Math.random() - 0.5) * 0.4, z: best[1] + (Math.random() - 0.5) * 0.4 }
-  }
-
   private localBoss(): Actor | null {
-    if (this.district === 'mob') return this.don && !this.don.dead ? this.don : null
+    if (this.don && !this.don.dead) return this.don
     return this.boss && !this.boss.dead ? this.boss : null
   }
 
-  private rivalBlueprint(kind: 'boss' | 'don') {
-    return kind === 'don' ? donBlueprint(this.save, this.steps(), this.bite(), this.tough()) : bossBlueprint(this.save, this.steps(), this.bite(), this.tough())
+  /** The night's boss sheet: the Rat King's or the Don's formula, at this map's falls and this zone's tier. */
+  private rivalBlueprint() {
+    const kills = this.save.bosses[this.district]
+    return MAPS[this.district].boss.sheet === 'don'
+      ? donBlueprint(this.save, kills, this.steps(), this.bite(), this.tough())
+      : bossBlueprint(this.save, kills, this.steps(), this.bite(), this.tough())
   }
 
   private clampArena(x: number, z: number): { x: number; z: number } {
-    if (x > HAVEN.minX - 6) {
+    const zone = this.zoneDef()
+    if (!zone) {
       const m = 0.6
       return { x: Math.max(HAVEN.minX + m, Math.min(HAVEN.maxX - m, x)), z: Math.max(HAVEN.minZ + m, Math.min(HAVEN.maxZ - m, z)) }
     }
-    if (z > MOB_Z * 0.5) {
-      const dx = x
-      const dz = z - MOB_Z
-      const d = Math.hypot(dx, dz)
-      const max = ARENA_R - 1.2
-      if (d > max && d > 0) return { x: (dx / d) * max, z: MOB_Z + (dz / d) * max }
-      return { x, z }
-    }
-    return nearestSlum(x, z, 0.45)
+    return nearestInZone(zone, x, z, 0.45)
   }
 
   private touchGate(): void {
@@ -3605,14 +3550,12 @@ export class Game {
     }
   }
 
+  /** Ground the hero and enemies may stand on: the night's zone, or the Haven yard between nights. */
   private canOccupy(x: number, z: number, radius: number): boolean {
-    if (x > HAVEN.minX - 6) {
+    const zone = this.zoneDef()
+    if (!zone) {
       if (x < HAVEN.minX + radius || x > HAVEN.maxX - radius || z < HAVEN.minZ + radius || z > HAVEN.maxZ - radius) return false
-    } else if (z > MOB_Z * 0.5) {
-      const dx = x
-      const dz = z - MOB_Z
-      if (dx * dx + dz * dz > (ARENA_R - radius) * (ARENA_R - radius)) return false
-    } else if (!inSlums(x, z, radius)) return false
+    } else if (!inZone(zone, x, z, radius)) return false
     for (const o of this.world.obstacles) {
       if (Math.hypot(x - o.x, z - o.z) < o.r + radius * 0.72) return false
     }
@@ -4113,7 +4056,7 @@ export class Game {
   private paintSpawns(): void {
     if (!new URLSearchParams(location.search).has('spawns')) return
     this.debugCam = 'map'
-    for (const pod of PODS) {
+    for (const pod of MAPS.slums.zones.flatMap((z) => z.pods)) {
       const color = 0xff7a32
       const disc = new THREE.Mesh(
         new THREE.RingGeometry(Math.max(0.3, pod.spread - 0.12), pod.spread + 0.12, 28),
@@ -4201,9 +4144,10 @@ export class Game {
         tier: heldTier(this.save).id,
         level: this.save.level,
         xp: this.save.xp,
-        bossKills: this.save.bossKills,
+        bosses: { ...this.save.bosses },
         mobKills: this.save.mobKills,
-        donKills: this.save.donKills,
+        nightZone: this.night?.danger ?? null,
+        ladder: this.night ? this.tier() : null,
         district: this.district,
         bossAlive: !!(this.boss && !this.boss.dead),
         bossHp: this.boss && !this.boss.dead ? this.boss.hp : 0,
@@ -4267,9 +4211,9 @@ export class Game {
         muted: this.save.muted,
         bloodText: formatNum(this.save.blood),
         pods: this.pods.map((pod, i) => ({
-          name: PODS[i].name,
-          x: PODS[i].x,
-          z: PODS[i].z,
+          name: this.zonePods()[i]?.name,
+          x: this.zonePods()[i]?.x,
+          z: this.zonePods()[i]?.z,
           live: pod.members.filter((e) => !e.dead).map((e) => e.kind),
           alert: +pod.alert.toFixed(2),
           timer: +pod.timer.toFixed(2),
@@ -4292,7 +4236,7 @@ export class Game {
           })),
       }),
       summon: () => {
-        this.summonKing(true)
+        this.summonRival(true)
       },
       /** Night test hooks: start one, walk out, jump the clock, end it, or top up a currency. */
       begin: (district: DistrictId, danger = 0) => this.beginNight(district, danger),
@@ -4304,6 +4248,15 @@ export class Game {
         if (this.night) this.night.elapsed = elapsed
       },
       abandon: () => this.loseNight('fled'),
+      /** Opens every map and zone and clears every mark, for test runs. */
+      unlockAll: () => {
+        for (const id of DISTRICT_IDS) {
+          this.save.danger[id] = ZONE_COUNT - 1
+          this.save.bosses[id] = Math.max(this.save.bosses[id], MAPS[id].bossGate)
+          MARKS[id].forEach((list, zone) => list.forEach((def, i) => (this.save.marks[`${id}.${zone}.${i}`] = def.kind === 'extract' ? def.n : 1)))
+        }
+        this.persist()
+      },
       /** Drops one enemy of a kind on a spot, for close looks at a model. */
       spawn: (kind: Foe, x: number, z: number) => {
         const e = this.spawnEnemy(kind, x, z)

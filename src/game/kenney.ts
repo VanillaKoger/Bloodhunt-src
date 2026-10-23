@@ -50,6 +50,24 @@ export interface KenneyLib {
   thug(): Rig
   enforcer(): Rig
   don(): Rig
+  /** A map's boss: a pack character restyled by the map's boss look (see maps.ts). */
+  rival(base: RivalBase, look: RivalLook): Rig
+}
+
+export type RivalBase = 'zombie' | 'ghost' | 'vampire' | 'fox' | 'suitB' | 'suitE' | 'suitH'
+
+export interface RivalLook {
+  scale?: number
+  tint?: number
+  crown?: boolean
+  cape?: boolean
+  claws?: boolean
+  hat?: boolean
+  orb?: boolean
+  orbColor?: number
+  eyes?: number
+  chunky?: boolean
+  grey?: boolean
 }
 
 interface Prep {
@@ -1771,5 +1789,20 @@ export async function loadKenney(): Promise<KenneyLib> {
     thug: () => buildActor(suitH, graveMap, LOOK.thug),
     enforcer: () => buildActor(suitB, graveMap, LOOK.enforcer),
     don: () => buildActor(suitE, graveMap, LOOK.don),
+    rival: (base, look) => {
+      const template = { zombie, ghost, vampire, fox, suitB, suitE, suitH }[base]
+      const from = base === 'fox' ? LOOK.hound : base.startsWith('suit') ? LOOK.don : base === 'ghost' ? LOOK.spitter : LOOK.boss
+      return buildActor(template, graveMap, {
+        ...from,
+        fedora: false,
+        shades: false,
+        crown: false,
+        cape: false,
+        ...look,
+        eyes: look.eyes ?? from.eyes,
+        emissive: look.tint ?? from.emissive,
+        emissiveIntensity: 0.18,
+      })
+    },
   }
 }

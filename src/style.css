@@ -976,7 +976,7 @@ footer {
 }
 #night-chip .night-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 #night-clock { font-family: Cinzel, Palatino, serif; font-size: 20px; letter-spacing: 0.06em; color: #e8f6ff; font-variant-numeric: tabular-nums; }
-#night-danger { font-family: Cinzel, Palatino, serif; font-size: 11px; letter-spacing: 0.14em; color: #b9d8ea; }
+#night-danger { font-family: Cinzel, Palatino, serif; font-size: 10px; letter-spacing: 0.06em; color: #b9d8ea; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 62%; }
 #night-chip.warn { border-color: #ff8a4a; animation: dawn-warn 1s ease-in-out infinite; }
 
 /* Glow only: the chip's transform keeps it centered. */
@@ -1391,3 +1391,7 @@ footer {
 .omen.done { border-color: rgba(143, 224, 160, 0.5); background: rgba(20, 40, 24, 0.4); }
 .omen.done b { color: #9fe0a8; }
 #end-lines li.mark { color: #e2b4ff; justify-content: center; }
+.district .zone { margin: 6px 0 2px; font-size: 12.5px; color: #e6d6bc; }
+.district .zone b { font-family: Cinzel, Palatino, serif; color: var(--gold-2); letter-spacing: 0.04em; }
+.district.locked p { margin: 2px 0 4px; }
+.district.locked { padding: 8px 12px; }

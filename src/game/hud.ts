@@ -32,10 +32,20 @@ export interface HavenView {
     id: DistrictId
     label: string
     blurb: string
+    /** One line on what the place is, for a locked card. */
+    theme: string
+    /** Who is hunted there. */
+    roster: string
+    boss: string
     locked: boolean
     lockText: string
+    /** The map's three zones. */
     dangers: {
       label: string
+      name: string
+      zoneBlurb: string
+      /** 1-based rung on the 30-tier ladder. */
+      tier: number
       reward: number
       unlocked: boolean
       /** The danger's three marks, and what clearing one pays. */
@@ -160,7 +170,7 @@ export class Hud {
   private havenTab: HavenTab = 'hunt'
   /** The work a station opened the board on, picked out in the list. */
   private havenFocus = ''
-  /** The danger picked on each district card. */
+  /** The zone picked on each map card. */
   private pick: Partial<Record<DistrictId, number>> = {}
   private havenView: HavenView | null = null
 
@@ -206,7 +216,7 @@ export class Hud {
             <button id="btn-summon" type="button">Call him out</button>
           </div>
           <div id="night-chip" hidden>
-            <div class="night-row"><b id="night-clock">5:00</b><span id="night-danger">Danger I</span></div>
+            <div class="night-row"><b id="night-clock">5:00</b><span id="night-danger">Zone 1</span></div>
             <div class="frenzy"><i id="frenzy-fill"></i><span id="frenzy-text">Frenzy ×1.0</span></div>
           </div>
           <div id="extract-mark" hidden><span class="arrow"></span><span class="ring"></span><em></em></div>
@@ -545,7 +555,7 @@ export class Hud {
     if (!view) return
     chip.classList.toggle('warn', view.warn)
     this.root.querySelector('#night-clock')!.textContent = view.clock
-    this.root.querySelector('#night-danger')!.textContent = `Danger ${view.danger}`
+    this.root.querySelector('#night-danger')!.textContent = view.danger
     ;(this.root.querySelector('#frenzy-fill') as HTMLElement).style.width = `${Math.max(0, Math.min(1, view.frenzyFill)) * 100}%`
     this.root.querySelector('#frenzy-text')!.textContent = `Frenzy ×${view.frenzy.toFixed(1)}`
     chip.classList.toggle('frenzied', view.frenzy > 1.05)
@@ -593,7 +603,7 @@ export class Hud {
     el.querySelector('#end-flavor')!.textContent =
       view.outcome === 'extracted' ? text.flavor : `${text.flavor} You kept ${view.keep}% of the haul.`
     el.classList.toggle('lost', view.outcome !== 'extracted')
-    const lines: string[] = [`<li class="head">${view.district} · Danger ${view.danger} · ${view.time} · ${view.kills} kills</li>`]
+    const lines: string[] = [`<li class="head">${view.district} · ${view.danger} · ${view.time} · ${view.kills} kills</li>`]
     for (const k of CURRENCIES) {
       const banked = view.banked[k]
       const lost = view.lost[k]
@@ -640,11 +650,14 @@ export class Hud {
       `<button type="button" data-act="tab" data-id="${id}" class="${this.havenTab === id ? 'on' : ''}">${label}</button>`
     let body = ''
     if (this.havenTab === 'hunt') {
+      let shownGate = false
       body = view.districts
         .map((d) => {
           if (d.locked) {
-            const gate = d.gate.map((g) => `<li class="${g.done ? 'done' : ''}">${g.text}</li>`).join('')
-            return `<div class="district locked"><h3>${d.label}</h3><p>${d.blurb}</p><ul class="marks gate">${gate}</ul></div>`
+            // The next map to open shows what it asks; the ones past it only say what they are.
+            const gate = shownGate ? '' : `<ul class="marks gate">${d.gate.map((g) => `<li class="${g.done ? 'done' : ''}">${g.text}</li>`).join('')}</ul>`
+            shownGate = true
+            return `<div class="district locked"><h3>${d.label}</h3><p>${d.theme}</p>${gate}</div>`
           }
           const picked = Math.min(this.pick[d.id] ?? d.best, d.best)
           const pips = d.dangers
@@ -661,13 +674,14 @@ export class Hud {
           const goal = at.cleared
             ? 'Marks cleared.'
             : next
-              ? `Clear all three to open Danger ${next.label}. Each pays ${costText(at.reward2)}.`
-              : `The deepest marks. Each pays ${costText(at.reward2)}.`
+              ? `Clear all three to open ${next.name}. Each pays ${costText(at.reward2)}.`
+              : `Clear all three, and fell ${d.boss} enough, to open the next map. Each pays ${costText(at.reward2)}.`
           return `<div class="district">
             <h3>${d.label}</h3>
             <p>${d.blurb}</p>
-            <div class="pips"><span>Danger</span>${pips}</div>
-            <p class="pay">×${at.reward.toFixed(2)} Blood</p>
+            <div class="pips"><span>Zone</span>${pips}</div>
+            <p class="zone"><b>${at.name}</b> · tier ${at.tier} of 30 · ×${at.reward.toFixed(2)} Blood</p>
+            <p class="pay">${at.zoneBlurb}</p>
             <ul class="marks">${marks}</ul>
             <p class="goal">${goal} Marks count when you get out.</p>
             <button type="button" class="begin" data-act="begin" data-id="${d.id}">Begin the night</button>
