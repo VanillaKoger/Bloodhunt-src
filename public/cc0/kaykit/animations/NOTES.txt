@@ -1,0 +1,24 @@
+KayKit Character Animations 1.1 — FREE / CC0 (Rig_Medium sets)
+
+Source: https://kaylousberg.itch.io/kaykit-character-animations
+Author: Kay Lousberg — https://www.kaylousberg.com
+License: CC0 1.0 (see License.txt and ../licenses/KayKit-Character-Animations.txt)
+
+This folder holds the complete free Rig_Medium animation sets as Med_*.glb
+(clip names keep the Rig_Medium| prefix). Mesh-stripped GLB re-exports of the
+official free KayKit Character Animations pack.
+
+Blood-hunt runtime loaders use the cleaned siblings one level up:
+  ../anim-combat.glb ../anim-general.glb ../anim-move.glb
+plus the additional free categories also cleaned at the parent folder:
+  ../anim-ranged.glb ../anim-move-advanced.glb ../anim-simulation.glb
+  ../anim-special.glb ../anim-tools.glb
+(those strip the Rig_Medium| prefix so clip names match Idle_A / Walking_A /
+Melee_1H_Attack_Stab, etc.)
+
+Characters: ../mage.glb (Adventurers free Mage) and ../skeleton-minion.glb.
+
+Not included: paid SOURCE/Extra Blender files.
+Kenney Animated Characters — researched, not shipped (FBX, no usable walk clip).
+Mixamo — none free/licensed found in workspace.
+Quaternius on disk — props/buildings/rat only; no character anim library.

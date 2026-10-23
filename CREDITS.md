@@ -9,7 +9,7 @@ Author: Kay Lousberg — https://www.kaylousberg.com
 - Character Pack: Adventurers 2.0 (free) — the vampire is the Mage, with a pale head and a red cape
   https://kaylousberg.itch.io/kaykit-adventurers
   License: `public/cc0/kaykit/licenses/KayKit-Adventurers.txt`
-- Character Animations 1.1 (free) — Rig_Medium idle, walk, run, and the melee chop
+- Character Animations 1.1 (free) — full Rig_Medium free sets under `public/cc0/kaykit/` (`anim-combat|general|move|ranged|move-advanced|simulation|special|tools.glb`) and archive `public/cc0/kaykit/animations/` (Med_*); runtime uses combat/general/move
   https://kaylousberg.itch.io/kaykit-character-animations
   License: `public/cc0/kaykit/licenses/KayKit-Character-Animations.txt`
 - Fantasy Weapons Bits 1.0 (free) — full FREE pack shipped under `public/cc0/kaykit/weapons/` (gltf/fbx/obj + texture + License.txt). Starter right-hand weapons still load from `public/cc0/kaykit/`: `fistweapon_A` (claws), `dagger_A` (dagger), and a lengthened `dagger_A` (sword).
