@@ -1,0 +1,55 @@
+# Builds the beta branch and publishes it to the gh-pages branch of this
+# repo, so GitHub Pages can serve it for playtesting. The public playtest
+# site (VanillaKoger/Bloodhunt) is a separate repo and is never touched here.
+name: Deploy beta build
+
+on:
+  push:
+    branches: [claude/friendly-clarke-3bjtfn]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: deploy-beta
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+
+      # The game never loads these: the pack's fbx/obj formats, the Med_* animation
+      # archive, and the animation sets not in kaykit.ts. They only bloat the site.
+      - name: Drop unused archives from the build
+        run: |
+          rm -rf dist/cc0/kaykit/animations \
+            dist/cc0/kaykit/weapons/Assets/fbx \
+            "dist/cc0/kaykit/weapons/Assets/fbx(unity)" \
+            dist/cc0/kaykit/weapons/Assets/obj \
+            dist/cc0/kaykit/anim-ranged.glb \
+            dist/cc0/kaykit/anim-move-advanced.glb \
+            dist/cc0/kaykit/anim-simulation.glb \
+            dist/cc0/kaykit/anim-special.glb \
+            dist/cc0/kaykit/anim-tools.glb
+          touch dist/.nojekyll
+
+      # gh-pages holds only the latest build, one commit, replaced on every deploy.
+      - name: Publish to gh-pages
+        working-directory: dist
+        run: |
+          git init -q -b gh-pages
+          git add -A
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -qm "Beta build of ${GITHUB_SHA::7}"
+          git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" gh-pages
