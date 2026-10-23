@@ -2,13 +2,14 @@ import * as THREE from 'three'
 import { addRim } from './polish'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js'
-import type { KenneyAnimState, KenneyDriver, MeleeState, Rig } from './models'
+import { CLAW_TIERS, type ClawTier, type ClawTierId } from './balance'
+import type { KenneyAnimState, KenneyDriver, MeleeState, Rig, WeaponSet } from './models'
 import { WEAPON_KINDS, type WeaponKind } from './weapons'
 
 /**
  * Free-tier KayKit characters on the shared Rig_Medium skeleton.
  * The vampire is the Adventurers mage: pale head, solid red cape, a right-hand weapon
- * (claws, dagger, sword, or bone mace; see `equipWeapon` in models.ts).
+ * (claws, dagger, sword, or mace, one pack model per tier; see `equipWeapon` in models.ts).
  * Ghouls are the skeleton minion on the same clips.
  */
 
@@ -50,22 +51,17 @@ interface SwingSlot {
   lunge: number
 }
 
-/**
- * Ghouls only. Melee_1H_Attack_Stab draws back through the first 38%, then the arm
- * drives through around 52–62%. The hit is registered at attack u=0.48, so
- * the thrust is pulled onto that instant and the rest stays draw / recovery.
- */
-function stabTime(u: number, duration: number): number {
-  let k: number
-  if (u < 0.36) k = (u / 0.36) * 0.38
-  else if (u < 0.56) k = 0.38 + ((u - 0.36) / 0.2) * 0.24
-  else k = 0.62 + ((u - 0.56) / 0.44) * 0.38
-  return clamp(k, 0, 1) * duration
-}
+/** Ghouls stab. Melee_1H_Attack_Stab's thrust meets the target 0.42 s into the clip. */
+const STAB = 'Melee_1H_Attack_Stab'
+const STAB_CONTACT = 0.42
+/** An enemy swing runs 0.28 s and its hit lands 0.16 s in (see the enemy loop in Game.ts). */
+const ENEMY_SWING = 0.28
+const ENEMY_HIT = 0.16
+/** Clip seconds one enemy swing covers, at one even rate, so the thrust lands on the hit. */
+const STAB_SPAN = (STAB_CONTACT * ENEMY_SWING) / ENEMY_HIT
 
 class KayDriver implements KenneyDriver {
   private readonly yawQ = new THREE.Quaternion()
-  private readonly melee: THREE.AnimationAction | null
 
   constructor(
     private readonly mixer: THREE.AnimationMixer,
@@ -76,7 +72,6 @@ class KayDriver implements KenneyDriver {
     private readonly hips: THREE.Object3D | null,
     private readonly chest: THREE.Object3D | null,
     private readonly head: THREE.Object3D | null,
-    meleeClip: THREE.AnimationClip | null,
     private readonly lunge: boolean,
     private readonly clips: Map<string, THREE.AnimationClip>,
   ) {
@@ -87,14 +82,6 @@ class KayDriver implements KenneyDriver {
     this.idle = idle
     this.walk = walk
     this.sprint = sprint
-    this.melee = meleeClip ? mixer.clipAction(meleeClip) : null
-    if (this.melee) {
-      this.melee.setLoop(THREE.LoopOnce, 1)
-      this.melee.clampWhenFinished = true
-      this.melee.play()
-      this.melee.setEffectiveWeight(0)
-      this.melee.paused = true
-    }
   }
 
   private readonly idle: THREE.AnimationAction
@@ -105,6 +92,9 @@ class KayDriver implements KenneyDriver {
   private swing: SwingSlot | null = null
   private tail: SwingSlot | null = null
   private swingId = -1
+  /** Enemy swings arrive as a bare 0–1 `swing`; these turn it into stab swings. */
+  private lastU = 0
+  private stabs = 0
 
   update(state: KenneyAnimState): void {
     if (state.melee !== undefined) {
@@ -112,45 +102,44 @@ class KayDriver implements KenneyDriver {
       return
     }
     const gait = clamp(state.gait, 0, 1)
-    const swing = state.attack > 0 ? state.attack : clamp(state.swing, 0, 1)
-    const attacking = swing > 0 && this.melee != null
-    if (attacking && this.melee) {
-      this.idle.setEffectiveWeight(0)
-      this.walk.setEffectiveWeight(0)
-      this.sprint.setEffectiveWeight(0)
-      this.melee.setEffectiveWeight(1)
-      this.melee.paused = true
-      const duration = this.melee.getClip().duration || 1
-      this.melee.time = stabTime(swing, duration)
-      this.mixer.update(0)
-    } else {
-      if (this.melee) this.melee.setEffectiveWeight(0)
-      if (state.footSync) this.blendHero(state)
-      else {
-        this.idle.setEffectiveWeight(1 - gait)
-        this.walk.setEffectiveWeight(gait)
-        this.sprint.setEffectiveWeight(0)
-        this.walk.timeScale = 0.45 + gait * 1.25
-        this.sprint.timeScale = 0.7 + gait * 0.4
-      }
-      this.mixer.update(state.dt)
-    }
-    this.applyAim(state, gait, attacking)
+    const u = clamp(state.swing, 0, 1)
+    if (u > 0 && (this.lastU <= 0 || u < this.lastU)) this.stabs++
+    this.lastU = u
+    const stab: MeleeState | null =
+      u > 0 ? { clip: STAB, time: u * STAB_SPAN, rate: STAB_SPAN / ENEMY_SWING, contact: STAB_CONTACT, id: this.stabs, lunge: 0 } : null
+    const over = this.layerSwing(stab, state.dt)
+    this.idle.setEffectiveWeight((1 - gait) * (1 - over))
+    this.walk.setEffectiveWeight(gait * (1 - over))
+    this.sprint.setEffectiveWeight(0)
+    this.walk.timeScale = 0.45 + gait * 1.25
+    this.sprint.timeScale = 0.7 + gait * 0.4
+    this.mixer.update(state.dt)
+    this.applyAim(state, gait, this.swing != null)
     this.bob.position.set(0, 0, 0)
+  }
+
+  /** The hero: locomotion from ground speed, with the weapon swing laid over it. */
+  private updateHero(state: KenneyAnimState): void {
+    const gait = clamp(state.gait, 0, 1)
+    const over = this.layerSwing(state.melee ?? null, state.dt)
+    this.blendHero(state)
+    for (const action of [this.idle, this.walk, this.sprint]) action.setEffectiveWeight(action.getEffectiveWeight() * (1 - over))
+    this.mixer.update(state.dt)
+    const attacking = this.swing != null
+    this.applyAim(state, gait, attacking)
+    this.applySwingLean(state, attacking)
     // Absolute, every frame: the mixer can write the bind scale back.
     if (this.lunge && this.head) this.head.scale.setScalar(HEAD_SCALE)
   }
 
   /**
-   * The hero. Locomotion always runs underneath; a weapon swing is laid
-   * over it at one even rate (no time warp), blends in over its first
-   * frames, and when the swing is done keeps playing on its own clock
-   * while it fades back to the feet. A new swing takes over from a
-   * fading one the same way.
+   * Lays an attack clip over locomotion at one even rate (no time warp).
+   * It blends in over its first frames, and when the swing is done keeps
+   * playing on its own clock while it fades back to the feet. A new swing
+   * takes over from a fading one the same way. Returns the weight the
+   * swings hold, which locomotion gives up.
    */
-  private updateHero(state: KenneyAnimState): void {
-    const gait = clamp(state.gait, 0, 1)
-    const m = state.melee ?? null
+  private layerSwing(m: MeleeState | null, dt: number): number {
     if (m && m.id !== this.swingId) this.startSwing(m)
     else if (!m && this.swing) {
       this.tail = this.swing
@@ -163,8 +152,8 @@ class KayDriver implements KenneyDriver {
     }
     if (this.tail) {
       const t = this.tail
-      t.time = Math.min(t.action.getClip().duration, t.time + state.dt * t.rate)
-      t.weight = this.swing ? Math.min(t.weight, 1 - this.swing.weight) : t.weight - state.dt / SWING_OUT
+      t.time = Math.min(t.action.getClip().duration, t.time + dt * t.rate)
+      t.weight = this.swing ? Math.min(t.weight, 1 - this.swing.weight) : t.weight - dt / SWING_OUT
       if (t.weight <= 0) {
         t.action.setEffectiveWeight(0)
         this.tail = null
@@ -176,13 +165,7 @@ class KayDriver implements KenneyDriver {
       slot.action.time = Math.min(slot.time, slot.action.getClip().duration - 1e-4)
       slot.action.setEffectiveWeight(slot.weight)
     }
-    this.blendHero(state)
-    for (const action of [this.idle, this.walk, this.sprint]) action.setEffectiveWeight(action.getEffectiveWeight() * (1 - over))
-    this.mixer.update(state.dt)
-    const attacking = this.swing != null
-    this.applyAim(state, gait, attacking)
-    this.applySwingLean(state, attacking)
-    if (this.lunge && this.head) this.head.scale.setScalar(HEAD_SCALE)
+    return over
   }
 
   private startSwing(m: MeleeState): void {
@@ -479,48 +462,121 @@ function faceDetails(model: THREE.Object3D, head: THREE.Object3D, headMesh: THRE
   }
 }
 
-function fistMaterial(template: THREE.Object3D): THREE.MeshLambertMaterial {
+/**
+ * A tier's weapon material: the pack texture tinted toward the tier color,
+ * lit from inside in that color. `userData.glow` is the resting glow; the
+ * rank brightens it from there (see `applyGearVisual`).
+ */
+function tierMaterial(template: THREE.Object3D, tier: ClawTier): THREE.MeshLambertMaterial {
   const map = findMap(template)
+  const hue = new THREE.Color(tier.color)
   const mat = new THREE.MeshLambertMaterial({
     map: map ?? undefined,
-    color: 0xa8acb4,
-    emissive: 0xd5dce8,
+    color: new THREE.Color(0xffffff).lerp(hue, 0.6),
+    emissive: hue,
     emissiveMap: map ?? undefined,
-    emissiveIntensity: 0.95,
+    emissiveIntensity: TIER_GLOW[tier.id],
   })
   mat.userData.flashable = true
+  mat.userData.glow = TIER_GLOW[tier.id]
   addRim(mat)
   return mat
 }
 
-/** How each weapon mesh sits in the right-hand slot. The slot's +Y is the character's forward. */
-const WEAPON_POSE: Record<WeaponKind, { pos: [number, number, number]; rot: [number, number, number]; scale: [number, number, number] }> = {
-  // fistweapon_A is a spiked knuckle guard sized for a bare fist; scaled up so the spikes clear the mage's mitten.
-  claws: { pos: [-0.03, 0, 0], rot: [0, 0, 0], scale: [1.9, 1.65, 1.65] },
-  // dagger_A is authored with the grip at the origin and the blade along +Y.
-  dagger: { pos: [0, 0, 0], rot: [0, 0, 0], scale: [1, 1, 1] },
-  // No sword is in the free pack, so the sword is dagger_A drawn out into a longer blade.
-  sword: { pos: [0, 0, 0], rot: [0, 0, 0], scale: [1.12, 1.75, 1.12] },
-  // bone_A lies along X, centered. Stood up on Y with one knuckle in the fist, it is a bone club.
-  mace: { pos: [0, 0.39, 0], rot: [0, 0, Math.PI / 2], scale: [1.45, 1.35, 1.35] },
+const TIER_GLOW: Record<ClawTierId, number> = {
+  teethling: 0.55,
+  kindred: 0.7,
+  awakened: 0.85,
+  ascendent: 1,
+  immortal: 1.2,
 }
 
-function attachWeapon(slot: THREE.Object3D, kind: WeaponKind, template: THREE.Object3D, mat: THREE.MeshLambertMaterial): THREE.Group {
+type V3 = [number, number, number]
+
+/** One mesh of a tier's weapon, posed in the right-hand slot. The slot's +Y is the character's forward. */
+interface WeaponPart {
+  /** A glTF stem in the Fantasy Weapons Bits pack, or `bone_A` from Halloween Bits. */
+  file: string
+  pos?: V3
+  rot?: V3
+  scale: number | V3
+}
+
+/**
+ * Every weapon class holds a different pack model at each tier, and each
+ * one is a step up from the last. Pack weapons are authored grip at the
+ * origin, blade or head along +Y. The pack has two daggers; the tiers past
+ * the sai are its sword blades cut short and broad into knives (a tanto,
+ * a basket-hilt main-gauche, a dirk), so they never read as small swords.
+ */
+const TIER_MODELS: Record<WeaponKind, Record<ClawTierId, WeaponPart[]>> = {
+  claws: {
+    // Spiked knuckle ring, scaled up so the spikes clear the mage's mitten.
+    teethling: [{ file: 'fistweapon_A', pos: [-0.03, 0, 0], scale: [1.9, 1.65, 1.65] }],
+    kindred: [{ file: 'fistweapon_A_stacked', pos: [-0.02, 0, 0], scale: [1.35, 1.3, 1.3] }],
+    awakened: [{ file: 'fistweapon_B', scale: 1.25 }],
+    ascendent: [{ file: 'fistweapon_B_stacked', scale: 1.05 }],
+    // Two triple-claw sets fanned against each other: six hooked blades.
+    immortal: [
+      { file: 'fistweapon_B_stacked', rot: [0, 0, 0.14], scale: 1.12 },
+      { file: 'fistweapon_B_stacked', pos: [0, 0.04, 0], rot: [0, 0, -0.2], scale: [1.2, 1.12, 0.9] },
+    ],
+  },
+  dagger: {
+    teethling: [{ file: 'dagger_A', scale: 1 }],
+    kindred: [{ file: 'dagger_B', scale: 1 }],
+    awakened: [{ file: 'sword_C', scale: [1.15, 0.64, 1.15] }],
+    ascendent: [{ file: 'sword_D', scale: [1.05, 0.62, 1.05] }],
+    immortal: [{ file: 'sword_E', scale: [0.9, 0.44, 0.9] }],
+  },
+  sword: {
+    teethling: [{ file: 'sword_A', scale: 1.2 }],
+    kindred: [{ file: 'sword_B', scale: 1.22 }],
+    awakened: [{ file: 'sword_C', scale: 1.1 }],
+    ascendent: [{ file: 'sword_D', scale: 1.16 }],
+    immortal: [{ file: 'sword_E', scale: 0.8 }],
+  },
+  mace: {
+    // bone_A lies along X, centered. Stood up on Y with one knuckle in the fist, it is a bone club.
+    teethling: [{ file: 'bone_A', pos: [0, 0.39, 0], rot: [0, 0, Math.PI / 2], scale: [1.45, 1.35, 1.35] }],
+    kindred: [{ file: 'hammer_C', scale: 0.95 }],
+    awakened: [{ file: 'hammer_B', scale: 0.95 }],
+    ascendent: [{ file: 'hammer_A', scale: 1.05 }],
+    // The crystal staff cut down to a scepter, held near the butt so the crystal is the head.
+    immortal: [{ file: 'staff_B', pos: [0, 0.36, 0], scale: [1.3, 0.66, 1.3] }],
+  },
+}
+
+function weaponFile(file: string): string {
+  return file === 'bone_A' ? 'cc0/kaykit/bone_A.gltf' : `cc0/kaykit/weapons/Assets/gltf/${file}.gltf`
+}
+
+function attachWeapon(
+  slot: THREE.Object3D,
+  name: string,
+  parts: WeaponPart[],
+  files: Map<string, THREE.Object3D>,
+  mat: THREE.MeshLambertMaterial,
+): THREE.Group {
   const group = new THREE.Group()
-  group.name = `weapon-${kind}`
-  const model = template.clone(true)
-  model.traverse((child) => {
-    const mesh = child as THREE.Mesh
-    if (!mesh.isMesh) return
-    mesh.material = mat
-    mesh.castShadow = false
-    mesh.receiveShadow = false
-    mesh.frustumCulled = false
-  })
-  const pose = WEAPON_POSE[kind]
-  model.position.set(...pose.pos)
-  model.rotation.set(...pose.rot)
-  model.scale.set(...pose.scale)
+  group.name = `weapon-${name}`
+  const model = new THREE.Group()
+  for (const part of parts) {
+    const mesh = files.get(part.file)!.clone(true)
+    mesh.traverse((child) => {
+      const m = child as THREE.Mesh
+      if (!m.isMesh) return
+      m.material = mat
+      m.castShadow = false
+      m.receiveShadow = false
+      m.frustumCulled = false
+    })
+    mesh.position.set(...(part.pos ?? [0, 0, 0]))
+    mesh.rotation.set(...(part.rot ?? [0, 0, 0]))
+    if (typeof part.scale === 'number') mesh.scale.setScalar(part.scale)
+    else mesh.scale.set(...part.scale)
+    model.add(mesh)
+  }
   group.add(model)
   group.updateWorldMatrix(true, true)
   const best = new THREE.Vector3()
@@ -576,7 +632,6 @@ function wrap(model: THREE.Object3D, height: number, clips: Map<string, THREE.An
     hips,
     chest,
     head,
-    clip(clips, 'Melee_1H_Attack_Stab'),
     lunge,
     clips,
   )
@@ -599,7 +654,7 @@ function wrap(model: THREE.Object3D, height: number, clips: Map<string, THREE.An
 function buildVampire(
   template: THREE.Object3D,
   clips: Map<string, THREE.AnimationClip>,
-  arms: Record<WeaponKind, { model: THREE.Object3D; mat: THREE.MeshLambertMaterial }>,
+  files: Map<string, THREE.Object3D>,
   pale: THREE.Texture,
 ): Rig {
   const model = cloneSkinned(template) as THREE.Group
@@ -610,20 +665,22 @@ function buildVampire(
   if (head && headMesh) faceDetails(model, head, headMesh)
   const claws: THREE.Object3D[] = []
   const right = bone(model, 'handslot.r')
-  const weapons = {} as Record<WeaponKind, { group: THREE.Group; mat: THREE.MeshLambertMaterial }>
+  const weapons = {} as WeaponSet
   if (right) {
     for (const kind of WEAPON_KINDS) {
-      // Each mesh gets its own material: the tier tint is written onto whichever is equipped.
-      const mat = arms[kind].mat.clone()
-      mat.userData.flashable = true
-      addRim(mat)
-      const group = attachWeapon(right, kind, arms[kind].model, mat)
-      group.visible = kind === 'claws'
-      weapons[kind] = { group, mat }
+      weapons[kind] = {} as WeaponSet[WeaponKind]
+      for (const tier of CLAW_TIERS) {
+        // Each model gets its own material, so a rank's glow only lights the one in hand.
+        const parts = TIER_MODELS[kind][tier.id]
+        const mat = tierMaterial(files.get(parts[0].file)!, tier)
+        const group = attachWeapon(right, `${kind}-${tier.id}`, parts, files, mat)
+        group.visible = kind === 'claws' && tier.id === 'teethling'
+        weapons[kind][tier.id] = { group, mat }
+      }
     }
-    claws.push(weapons.claws.group)
+    claws.push(weapons.claws.teethling.group)
   }
-  const rig = wrap(model, height, clips, true, claws, { claw: weapons.claws?.mat, cape })
+  const rig = wrap(model, height, clips, true, claws, { claw: weapons.claws?.teethling.mat, cape })
   rig.root.userData.kayFist = true
   rig.root.userData.visual = HERO_SCALE
   if (right) rig.root.userData.weapons = weapons
@@ -639,15 +696,14 @@ function buildGhoul(template: THREE.Object3D, clips: Map<string, THREE.Animation
 
 export async function loadKaykit(): Promise<KaykitCast> {
   const loader = new GLTFLoader()
-  const [mage, skel, combat, general, move, dagger, fist, boneClub] = await Promise.all([
+  const stems = [...new Set(WEAPON_KINDS.flatMap((kind) => CLAW_TIERS.flatMap((t) => TIER_MODELS[kind][t.id].map((p) => p.file))))]
+  const [mage, skel, combat, general, move, ...arms] = await Promise.all([
     loader.loadAsync(asset('cc0/kaykit/mage.glb')),
     loader.loadAsync(asset('cc0/kaykit/skeleton-minion.glb')),
     loader.loadAsync(asset('cc0/kaykit/anim-combat.glb')),
     loader.loadAsync(asset('cc0/kaykit/anim-general.glb')),
     loader.loadAsync(asset('cc0/kaykit/anim-move.glb')),
-    loader.loadAsync(asset('cc0/kaykit/dagger_A.gltf')),
-    loader.loadAsync(asset('cc0/kaykit/fistweapon_A.gltf')),
-    loader.loadAsync(asset('cc0/kaykit/bone_A.gltf')),
+    ...stems.map((stem) => loader.loadAsync(asset(weaponFile(stem)))),
   ])
   const clips = new Map<string, THREE.AnimationClip>()
   for (const gltf of [combat, general, move]) {
@@ -656,15 +712,9 @@ export async function loadKaykit(): Promise<KaykitCast> {
   const map = findMap(mage.scene)
   if (!map) throw new Error('KayKit mage is missing its texture')
   const pale = paleSkin(map)
-  const blade = fistMaterial(dagger.scene)
-  const arms: Record<WeaponKind, { model: THREE.Object3D; mat: THREE.MeshLambertMaterial }> = {
-    claws: { model: fist.scene, mat: fistMaterial(fist.scene) },
-    dagger: { model: dagger.scene, mat: blade },
-    sword: { model: dagger.scene, mat: blade },
-    mace: { model: boneClub.scene, mat: fistMaterial(boneClub.scene) },
-  }
+  const files = new Map(stems.map((stem, i) => [stem, arms[i].scene]))
   return {
-    hero: () => buildVampire(mage.scene, clips, arms, pale),
+    hero: () => buildVampire(mage.scene, clips, files, pale),
     ghoul: () => buildGhoul(skel.scene, clips),
   }
 }

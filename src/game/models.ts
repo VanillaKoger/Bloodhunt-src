@@ -804,21 +804,25 @@ function applyClawTier(rig: Rig, weaponLv: number): void {
   rig.root.userData.clawTier = tier.id
 }
 
+/** The KayKit hero's weapon models: one per class and tier, all on the right hand. */
+export type WeaponSet = Record<WeaponKind, Record<ClawTierId, { group: THREE.Group; mat: THREE.MeshLambertMaterial }>>
+
 /**
- * Show the equipped weapon's mesh on a KayKit hero and point `claws` and
- * `mats.claw` at it, so the tier tint, trail tip, and hit flash follow.
+ * Show the equipped weapon's model for its tier on a KayKit hero and point
+ * `claws` and `mats.claw` at it, so the rank glow, trail tip, and hit flash follow.
  * Rigs without a weapon set (enemies, the procedural fallback hero) are left alone.
  */
-export function equipWeapon(rig: Rig, kind: WeaponKind): void {
-  const weapons = rig.root.userData.weapons as Record<WeaponKind, { group: THREE.Group; mat: THREE.MeshLambertMaterial }> | undefined
+export function equipWeapon(rig: Rig, kind: WeaponKind, tier: ClawTierId): void {
+  const weapons = rig.root.userData.weapons as WeaponSet | undefined
   if (!weapons) return
-  for (const [id, w] of Object.entries(weapons)) w.group.visible = id === kind
+  for (const [k, tiers] of Object.entries(weapons)) {
+    for (const [t, w] of Object.entries(tiers)) w.group.visible = k === kind && t === tier
+  }
   rig.claws.length = 0
-  rig.claws.push(weapons[kind].group)
-  rig.mats.claw = weapons[kind].mat
+  rig.claws.push(weapons[kind][tier].group)
+  rig.mats.claw = weapons[kind][tier].mat
 }
 
-/** `rankFrac` is the equipped weapon's rank over its tier's last rank: the tint glows brighter as it climbs. */
 export function applyGearVisual(rig: Rig, weaponLv: number, capeLv: number, evolvedWeapon: boolean, evolvedCape: boolean, rankFrac = 0): void {
   applyClawTier(rig, weaponLv)
   const tiered = rig.root.userData.clawTier != null && rig.claws.some((hand) => hand.userData.clawSpec)
@@ -830,9 +834,8 @@ export function applyGearVisual(rig: Rig, weaponLv: number, capeLv: number, evol
       const span = next ? Math.max(1, next.from - tier.from) : 10
       const into = Math.max(rankFrac, Math.min(1, (weaponLv - tier.from) / span))
       if (kay && !tiered) {
-        rig.mats.claw.color.setHex(tier.color)
-        rig.mats.claw.emissive.setHex(tier.color)
-        rig.mats.claw.emissiveIntensity = 1.2 + into * 0.7
+        // The tier color is baked into the model's material; the rank only brightens it.
+        rig.mats.claw.emissiveIntensity = (rig.mats.claw.userData.glow ?? 1) * (1 + into * 0.6)
       } else {
         rig.mats.claw.emissiveIntensity = TIER_SHAPE[tier.id].glow * (1 + into * 0.45)
       }

@@ -2,7 +2,7 @@ import { applyAttributes } from './attributes'
 import type { EnemyKind, SaveData, SkillId, Slot, Stat, WeaponRank } from './types'
 import { NORTH_ALLEY_SHIFT } from './world'
 import { SLOTS } from './types'
-import { WEAPONS, type WeaponKind } from './weapons'
+import { WEAPONS, weaponInterval, type WeaponKind } from './weapons'
 
 export const BASE_STAT: Record<Stat, number> = {
   strength: 8,
@@ -462,7 +462,8 @@ export function profile(save: SaveData): CombatProfile {
   return applyAttributes({
     dmg: (10 + str * 0.55 + save.gear.weapon * 1.35) * w.dmg * power,
     crit: Math.min(0.45, 0.05 + agi * 0.0035 + w.crit + tier.crit),
-    interval: Math.max(0.28, 0.52 - agi * 0.003 - save.gear.boots * 0.012) * w.interval,
+    // Attack speed is the weapon's alone. Stats, gear, and ranks never touch it.
+    interval: weaponInterval(save.weapon),
     speed: 3.2 + agi * 0.018 + save.gear.boots * 0.055,
     hp: 96 + vit * 2.3 + save.gear.coat * 5,
     armor: fort * 0.45 + save.gear.coat * 1.15,

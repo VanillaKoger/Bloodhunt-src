@@ -1,5 +1,5 @@
 import type { WeaponType } from './attributes'
-import type { ClawTier, ClawTierId } from './balance'
+import type { ClawTier } from './balance'
 
 /**
  * The hero's weapon classes. Each one trains a mastery attribute, holds its
@@ -13,8 +13,8 @@ export const WEAPON_KINDS: WeaponKind[] = ['claws', 'dagger', 'sword', 'mace']
 
 /**
  * One KayKit attack clip and where it lands, in clip seconds. The clip
- * plays at one even rate, `ready / interval`, so it finishes its strike
- * and is back on guard as the next swing is due.
+ * plays at its weapon's `rate`, and the next swing starts the moment this
+ * one is back on guard, so the attack speed is the animation's own.
  */
 export interface SwingDef {
   clip: string
@@ -33,10 +33,14 @@ export interface WeaponDef {
   /** Gear-menu class line. */
   label: string
   blurb: string
-  /** Hit damage, swing time, and crit chance next to the claws. */
+  /** Hit damage and crit chance next to the claws. */
   dmg: number
-  interval: number
   crit: number
+  /**
+   * Clip seconds per second for this weapon's swings. The only source of
+   * attack speed: a swing lasts `ready / rate`, whatever the hero's stats.
+   */
+  rate: number
   /** Played in turn, one per attack. */
   swings: SwingDef[]
   /** Extra hit reach in meters. */
@@ -57,8 +61,8 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     label: 'Claws',
     blurb: 'Knuckle claws. The even, steady hunt.',
     dmg: 1,
-    interval: 1,
     crit: 0,
+    rate: 1.7,
     swings: [{ clip: 'Melee_Unarmed_Attack_Punch_A', contact: 0.46, ready: 0.88 }],
     reach: 0,
     arc: 0.15,
@@ -72,8 +76,8 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     label: 'Blade · Dagger',
     blurb: 'Quick and light. Finds the vein more often.',
     dmg: 0.86,
-    interval: 0.88,
     crit: 0.06,
+    rate: 1.7,
     swings: [{ clip: 'Melee_1H_Attack_Stab', contact: 0.42, ready: 0.78 }],
     reach: 0.1,
     arc: 0.45,
@@ -87,8 +91,8 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     label: 'Blade · Sword',
     blurb: 'Longer reach of steel. A heavier cut.',
     dmg: 1.12,
-    interval: 1.08,
     crit: 0.02,
+    rate: 1.35,
     swings: [
       { clip: 'Melee_1H_Attack_Slice_Diagonal', contact: 0.45, ready: 0.8 },
       { clip: 'Melee_1H_Attack_Slice_Horizontal', contact: 0.28, ready: 0.7 },
@@ -105,8 +109,8 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     label: 'Blunt · Mace',
     blurb: 'A gnawed bone club. Slow, and it lands hard.',
     dmg: 1.32,
-    interval: 1.24,
     crit: 0,
+    rate: 1.45,
     swings: [{ clip: 'Melee_1H_Attack_Chop', contact: 0.6, ready: 0.95 }],
     reach: 0.15,
     arc: 0.2,
@@ -115,12 +119,15 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
   },
 }
 
-/** The item tier of the four starter weapons: Teethling, the grey tier. */
-export const STARTER_TIER: ClawTierId = 'teethling'
+/** Seconds one swing takes: wind-up, strike, and back on guard. */
+export function swingTime(kind: WeaponKind, swing: SwingDef): number {
+  return swing.ready / WEAPONS[kind].rate
+}
 
-/** Clip playback rate for one swing: back on guard exactly as the next one is due. */
-export function swingRate(swing: SwingDef, interval: number): number {
-  return Math.max(0.8, Math.min(2.4, swing.ready / Math.max(0.05, interval)))
+/** Mean seconds between hits over the weapon's swing set. */
+export function weaponInterval(kind: WeaponKind): number {
+  const swings = WEAPONS[kind].swings
+  return swings.reduce((sum, sw) => sum + swingTime(kind, sw), 0) / swings.length
 }
 
 export function weaponName(kind: WeaponKind, tier: ClawTier): string {
@@ -132,8 +139,9 @@ export function weaponTraits(kind: WeaponKind): string {
   const w = WEAPONS[kind]
   const pct = (v: number) => Math.round(Math.abs(v) * 100)
   const out: string[] = []
+  const pace = weaponInterval(kind) / weaponInterval('claws')
   if (w.dmg !== 1) out.push(`${w.dmg > 1 ? '+' : '−'}${pct(w.dmg - 1)}% hit`)
-  if (w.interval !== 1) out.push(`${pct(w.interval - 1)}% ${w.interval < 1 ? 'faster' : 'slower'}`)
+  if (Math.abs(pace - 1) >= 0.01) out.push(`${pct(pace - 1)}% ${pace < 1 ? 'faster' : 'slower'}`)
   if (w.crit > 0) out.push(`+${pct(w.crit)}% crit`)
   if (w.arc < 0) out.push('wide arc')
   if (w.knock > 1) out.push('heavy knockback')

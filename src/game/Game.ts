@@ -17,7 +17,6 @@ import {
   enemyStats,
   formatNum,
   gearFlat,
-  CLAW_TIERS,
   clawTier,
   feedWeapon,
   gearName,
@@ -33,6 +32,7 @@ import {
   skillDamage,
   upgradeCost,
   xpNeed,
+  type ClawTierId,
   type CombatProfile,
 } from './balance'
 import { ATTRS, POINTS_PER_LEVEL, attrPointsLeft, effectiveAttrs, weaponType, type Attr } from './attributes'
@@ -52,13 +52,14 @@ import {
   createWolf,
   equipWeapon,
   type MeleeState,
+  type WeaponSet,
   type Rig,
 } from './models'
 import { loadSave, takeOfflineGains, writeSave } from './save'
 import { Sfx } from './sfx'
 import type { EnemyKind, SaveData, SkillId, Slot } from './types'
 import { SKILLS, STATS } from './types'
-import { STARTER_TIER, WEAPONS, WEAPON_KINDS, isWeaponKind, swingRate, weaponName, weaponTraits, type SwingDef, type WeaponKind } from './weapons'
+import { WEAPONS, WEAPON_KINDS, isWeaponKind, swingTime, weaponName, weaponTraits, type SwingDef, type WeaponKind } from './weapons'
 import type { KenneyLib } from './kenney'
 import { createStage, makeDrift, qualityLow, type Stage } from './polish'
 import { DISTRICT_OPEN, FOG_COLOR, HERO_START, MOB_ARRIVE, MOB_GATE, MOB_Z, NORTH_ALLEY_SHIFT, SLUM_GATE, SLUM_RETURN, buildWorld, inSlums, nearestSlum, setNodeVisual, type WorldHandle } from './world'
@@ -285,6 +286,7 @@ export class Game {
   /** Tries spent on the one-shot HUD portrait. Stays high once the still is stored. */
   private portraitTries = 0
   private weaponIcons = false
+  private iconTier: ClawTierId | null = null
   /** Nests, packs, and the Rat King stay in the data. They only spawn with ?enemies=1. */
   private foes = new URLSearchParams(location.search).has('enemies')
   /** Scripted walk for the environment tour. Normal play leaves this null. */
@@ -848,19 +850,20 @@ export class Game {
     if (this.dashT <= 0 && hero.atkCd <= 0 && hero.atkT <= 0) {
       const target = this.nearest(2.15, false, true)
       if (target) {
-        // The swing fills the whole attack interval, and its clip plays at
-        // the one rate that has it back on guard as the next swing is due.
-        const swings = WEAPONS[this.save.weapon].swings
-        const move = swings[this.swingN % swings.length]
+        // The clip plays at the weapon's own rate. The hit lands on its
+        // contact frame and the next swing waits until it is back on guard.
+        const w = WEAPONS[this.save.weapon]
+        const move = w.swings[this.swingN % w.swings.length]
+        const len = swingTime(this.save.weapon, move)
         this.swingN++
         this.swingMove = move
-        this.swingRate = swingRate(move, prof.interval)
-        this.swingHit = Math.min(move.contact / this.swingRate, prof.interval * 0.9)
-        hero.atkCd = prof.interval
+        this.swingRate = w.rate
+        this.swingHit = move.contact / w.rate
+        hero.atkCd = len
         hero.atkT = 0.0001
         hero.struck = false
-        hero.swingDur = prof.interval
-        hero.swingT = prof.interval
+        hero.swingDur = len
+        hero.swingT = len
       }
     }
     this.animateActor(hero, dt)
@@ -2082,8 +2085,13 @@ export class Game {
   }
 
   private applyWeaponLook(): void {
-    equipWeapon(this.hero.rig, this.save.weapon)
     const tier = clawTier(this.save.gear.weapon)
+    equipWeapon(this.hero.rig, this.save.weapon, tier.id)
+    // The item cards show this tier's models, so a tier change redraws them on the next frame.
+    if (this.iconTier !== tier.id) {
+      this.iconTier = tier.id
+      this.weaponIcons = false
+    }
     const rankFrac = weaponRank(this.save, this.save.weapon).rank / tier.ranks
     applyGearVisual(this.hero.rig, this.save.gear.weapon, this.save.gear.cape, this.save.evolved.weapon, this.save.evolved.cape, rankFrac)
     const hue = new THREE.Color(tier.color)
@@ -2910,13 +2918,15 @@ export class Game {
   }
 
   /**
-   * Renders each weapon mesh on the hero's hand once, at the starter tier's
-   * color, into its gear-menu item card. Rigs without a weapon set skip this.
+   * Renders each weapon class's model for the current tier, in that tier's
+   * colors, into its gear-menu item card. Redrawn when the tier changes.
+   * Rigs without a weapon set skip this.
    */
   private snapWeaponIcons(): void {
     this.weaponIcons = true
-    const weapons = this.hero.rig.root.userData.weapons as Record<WeaponKind, { group: THREE.Group; mat: THREE.MeshLambertMaterial }> | undefined
-    if (!weapons) return
+    const all = this.hero.rig.root.userData.weapons as WeaponSet | undefined
+    if (!all) return
+    const tier = clawTier(this.save.gear.weapon)
     const size = 128
     const target = new THREE.WebGLRenderTarget(size, size)
     target.texture.colorSpace = THREE.SRGBColorSpace
@@ -2924,7 +2934,6 @@ export class Game {
     const key = new THREE.DirectionalLight(0xffe2c4, 1.6)
     key.position.set(2, 3, 4)
     shot.add(new THREE.HemisphereLight(0xd8ccf4, 0x3a2218, 1.6), key)
-    const tint = CLAW_TIERS.find((t) => t.id === STARTER_TIER)!.color
     const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 20)
     cam.position.set(0, 0, 5)
     const prevTarget = this.renderer.getRenderTarget()
@@ -2933,11 +2942,10 @@ export class Game {
     // Lay each posed mesh corner to corner like an inventory icon, grip low left and tip high right.
     // The claws stand their spikes up instead. Held weapons lean toward one scale so the sword reads longer than the dagger.
     const shots = WEAPON_KINDS.map((kind) => {
-      const model = weapons[kind].group.children[0]!.clone(true)
-      const mat = weapons[kind].mat.clone()
-      mat.color.setHex(tint)
-      mat.emissive.setHex(tint)
-      mat.emissiveIntensity = 1.1
+      const piece = all[kind][tier.id]
+      const model = piece.group.children[0]!.clone(true)
+      const mat = piece.mat.clone()
+      mat.emissiveIntensity = (piece.mat.userData.glow ?? 1) * 1.2
       model.traverse((child) => {
         const mesh = child as THREE.Mesh
         if (mesh.isMesh) mesh.material = mat
