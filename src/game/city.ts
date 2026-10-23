@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { HAVEN } from './haven'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import {
   COMMON_WALL_H,
@@ -93,7 +94,12 @@ function hash(n: number): number {
 }
 
 function blocked(x: number, z: number): boolean {
-  return inSlums(x, z, -CLEAR)
+  return inSlums(x, z, -CLEAR) || nearHaven(x, z)
+}
+
+/** The Haven yard and a wide margin on its camera side stay clear of city shells. */
+function nearHaven(x: number, z: number): boolean {
+  return x > HAVEN.minX - 2.5 && x < HAVEN.maxX + 12 && z > HAVEN.minZ - 2.5 && z < HAVEN.maxZ + 12
 }
 
 function inYard(x: number, z: number): boolean {

@@ -3,7 +3,7 @@ Kenney CC0 assets. The game loads these by default. Open with ?classic=1 for the
 Used
 - Graveyard Kit 5.0 (CC0) — Kenney
   https://kenney.nl/assets/graveyard-kit
-  Characters: character-zombie (slum wolf), character-ghost (hedge witch).
+  Characters: character-zombie (plague walker, and the Rat King at boss scale), character-vampire (feral thrall), character-ghost (miasma).
   The hero is the KayKit Adventurers mage and the ghoul is the KayKit skeleton minion. See CREDITS.md.
   These graveyard rigs include idle / walk / sprint.
   Props: fence, fence-damaged, iron-fence, lantern-candle, debris, debris-wood, rocks.
@@ -47,7 +47,7 @@ Used
 
 - Cube Pets 1.0 (CC0) — Kenney
   https://kenney.nl/assets/cube-pets
-  animal-fox as alley wildlife. The gutter rat is the Quaternius rat, not this fox.
+  animal-fox as alley wildlife, and tinted sickly as the plague hound.
   License: cube-pets/License.txt
 
 - Fantasy Town Kit 2.0 (CC0) — Kenney
@@ -81,11 +81,6 @@ Used
   License: public/cc0/downtown/License_Standard.txt
 
 The mob district (blocky suits, wet street, diner cards) is still in the source. DISTRICT_OPEN is false, so the gate is not built and those enemies do not spawn. Level 1 is the Slums back alley.
-
-- Quaternius Rat (CC0)
-  https://poly.pizza/m/iltq5bVNaV
-  Easy Enemy Pack rat, with idle / walk / run. The gutter rat uses it at alley scale. The Rat King is the same mesh, larger, with a crown.
-  License: public/cc0/License-rat.txt
 
 - Quaternius Cyberpunk Signs (CC0)
   https://poly.pizza/m/rsZJjigt1X

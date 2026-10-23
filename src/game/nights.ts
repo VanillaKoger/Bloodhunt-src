@@ -1,4 +1,4 @@
-import type { ClawTierId } from './balance'
+import type { ClawTierId, Material } from './balance'
 import type { SkillId } from './types'
 import { HERO_START, MOB_ARRIVE, MOB_Z } from './world'
 
@@ -11,18 +11,30 @@ import { HERO_START, MOB_ARRIVE, MOB_Z } from './world'
  * - Blood, from every kill: gear levels (weapon, cape, coat, boots).
  * - Ichor, from elites and bosses: weapon tiers.
  * - Vitae, from extracting and from bosses: blood powers and Haven rites.
+ *
+ * And three materials, dropped by enemy families and carried the same way,
+ * for the Haven's works and wardrobe: Bone, Bile, and Brass.
  */
 
 export type DistrictId = 'slums' | 'mob'
 
 export const DISTRICT_IDS: DistrictId[] = ['slums', 'mob']
 
-export type Currency = 'blood' | 'ichor' | 'vitae'
+export type Currency = 'blood' | 'ichor' | 'vitae' | Material
+
+export const CURRENCIES: Currency[] = ['blood', 'ichor', 'vitae', 'bone', 'bile', 'brass']
 
 export type Purse = Record<Currency, number>
 
 export function emptyPurse(): Purse {
-  return { blood: 0, ichor: 0, vitae: 0 }
+  return { blood: 0, ichor: 0, vitae: 0, bone: 0, bile: 0, brass: 0 }
+}
+
+/** The banked side of every currency, read off the save. */
+export function bankedPurse(save: Purse): Purse {
+  const out = emptyPurse()
+  for (const k of CURRENCIES) out[k] = save[k]
+  return out
 }
 
 export interface ExtractPoint {
@@ -51,7 +63,7 @@ export const DISTRICTS: Record<DistrictId, DistrictDef> = {
   slums: {
     id: 'slums',
     label: 'The Slums',
-    blurb: 'Three courts and the alleys between. Rats, ghouls, wolves, witches, and the Rat King under the crypt.',
+    blurb: 'Three courts and the alleys between. Plague hounds, walkers, thralls, thugs, the odd skeleton, and the Rat King in the chapel yard.',
     start: HERO_START,
     extracts: [
       { x: -28.5, z: -51.4, label: 'Sewer grate' },

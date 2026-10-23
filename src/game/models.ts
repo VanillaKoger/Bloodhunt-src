@@ -351,43 +351,6 @@ export function createGhoul(): Rig {
   return { root, bob, head, armL, armR, legL, legR, claws: [], mats: { eye } }
 }
 
-export function createRat(): Rig {
-  const { root, bob } = creatureBase(0.7)
-  const fur = std(0x6d564e, { roughness: 0.7 })
-  const belly = std(0x8d7268, { roughness: 0.65 })
-  const pink = std(0xc47d88, { roughness: 0.45 })
-  const legL = pivot(bob, -0.1, 0.36, 0)
-  const legR = pivot(bob, 0.1, 0.36, 0)
-  for (const leg of [legL, legR]) {
-    put(leg, new THREE.CapsuleGeometry(0.06, 0.14, 3, 6), fur, 0, -0.12, 0)
-    put(leg, rbox(0.1, 0.05, 0.16, 0.02), fur, 0, -0.22, 0.04)
-  }
-  const torso = pivot(bob, 0, 0.4, 0)
-  torso.rotation.x = 0.35
-  put(torso, rbox(0.36, 0.4, 0.28, 0.1), fur, 0, 0.12, 0)
-  put(torso, rbox(0.22, 0.22, 0.1, 0.05), belly, 0, 0.06, 0.12)
-  const armL = pivot(torso, -0.2, 0.16, 0.04)
-  const armR = pivot(torso, 0.2, 0.16, 0.04)
-  for (const arm of [armL, armR]) put(arm, new THREE.CapsuleGeometry(0.045, 0.12, 3, 6), fur, 0, -0.12, 0.04)
-  const head = pivot(torso, 0, 0.32, 0.12)
-  put(head, GEO.sphere, fur, 0, 0.08, 0, 0, 0, 0, 0.16, 0.15, 0.16)
-  put(head, GEO.sphere, fur, 0, 0.02, 0.14, 0, 0, 0, 0.09, 0.07, 0.12)
-  put(head, GEO.sphere, pink, 0, 0.0, 0.24, 0, 0, 0, 0.035, 0.025, 0.03)
-  put(head, GEO.sphere, pink, -0.14, 0.16, 0, 0, 0, 0.4, 0.08, 0.08, 0.04)
-  put(head, GEO.sphere, pink, 0.14, 0.16, 0, 0, 0, -0.4, 0.08, 0.08, 0.04)
-  const eye = addEyes(head, 0.1, 0.12, 0.07, 0.035, 0xff4048)
-  put(head, GEO.cone, std(0xf2eee8, { roughness: 0.4 }), -0.02, -0.02, 0.22, Math.PI / 2, 0, 0.4, 0.012, 0.05, 0.012)
-  put(head, GEO.cone, std(0xf2eee8, { roughness: 0.4 }), 0.02, -0.02, 0.22, Math.PI / 2, 0, -0.4, 0.012, 0.05, 0.012)
-  const curve = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(0, 0.15, -0.12),
-    new THREE.Vector3(0.05, 0.22, -0.32),
-    new THREE.Vector3(-0.08, 0.12, -0.52),
-    new THREE.Vector3(0.1, 0.2, -0.72),
-  ])
-  const tail = put(bob, new THREE.TubeGeometry(curve, 16, 0.025, 6, false), pink)
-  return { root, bob, head, armL, armR, legL, legR, tail, claws: [], mats: { eye } }
-}
-
 export function createWolf(): Rig {
   const { root, bob } = creatureBase(1.05)
   const fur = std(0x6c7384, { roughness: 0.68 })

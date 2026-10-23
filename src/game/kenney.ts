@@ -1,7 +1,6 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
-import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import type { ClawSpec, KenneyAnimState, KenneyDriver, Rig } from './models'
 import { loadKaykit } from './kaykit'
 import { dressCity } from './city'
@@ -30,7 +29,7 @@ import {
 /**
  * CC0 city. This is the default look. `?classic=1` skips this module.
  * The hero is the KayKit Adventurers mage, recoloured as a chunky vampire,
- * with the shared Rig_Medium chop. Ghouls are the KayKit skeleton minion.
+ * with the shared Rig_Medium chop. Skeletons are the KayKit skeleton minion.
  * Slum walls are the eight KayKit City Builder Bits shells, one mesh each.
  * The mob district dress follows MOB_ARENA.
  */
@@ -42,10 +41,11 @@ export interface KenneyLib {
   /** Drift the outer city's fog and the few flickering lamps. */
   drift(dt: number): void
   hero(): Rig
-  ghoul(): Rig
-  rat(): Rig
-  wolf(): Rig
-  witch(): Rig
+  hound(): Rig
+  walker(): Rig
+  thrall(): Rig
+  spitter(): Rig
+  skeleton(): Rig
   boss(): Rig
   thug(): Rig
   enforcer(): Rig
@@ -196,6 +196,10 @@ interface Look {
   claws: boolean
   eyes: number | null
   orb: boolean
+  /** Wash the pack colors to grey before the tint, for sick or rotten looks. */
+  grey?: boolean
+  /** The orb's glow color, when it has one. */
+  orbColor?: number
   emissive: number
   emissiveIntensity: number
   glow: number
@@ -372,9 +376,41 @@ function textureOf(model: THREE.Object3D, fallback: THREE.Texture): THREE.Textur
   return found
 }
 
+const greyCache = new Map<THREE.Texture, THREE.Texture>()
+
+/** A grey copy of a pack texture, so a tint reads as the creature's own color. */
+function greyed(tex: THREE.Texture): THREE.Texture {
+  const hit = greyCache.get(tex)
+  if (hit) return hit
+  const img = tex.image as CanvasImageSource & { width: number; height: number }
+  if (!img || !img.width) return tex
+  const canvas = document.createElement('canvas')
+  canvas.width = img.width
+  canvas.height = img.height
+  const g = canvas.getContext('2d')!
+  g.drawImage(img, 0, 0)
+  const data = g.getImageData(0, 0, canvas.width, canvas.height)
+  const px = data.data
+  for (let i = 0; i < px.length; i += 4) {
+    const l = px[i] * 0.3 + px[i + 1] * 0.59 + px[i + 2] * 0.11
+    // Keep a little of the old hue so the markings still read.
+    px[i] = l * 0.85 + px[i] * 0.15
+    px[i + 1] = l * 0.85 + px[i + 1] * 0.15
+    px[i + 2] = l * 0.85 + px[i + 2] * 0.15
+  }
+  g.putImageData(data, 0, 0)
+  const out = new THREE.CanvasTexture(canvas)
+  out.colorSpace = tex.colorSpace
+  out.flipY = tex.flipY
+  out.magFilter = tex.magFilter
+  out.minFilter = tex.minFilter
+  greyCache.set(tex, out)
+  return out
+}
+
 function buildActor(template: ActorTemplate, map: THREE.Texture, look: Look): Rig {
   const model = template.scene.clone(true)
-  const worn = textureOf(model, map)
+  const worn = look.grey ? greyed(textureOf(model, map)) : textureOf(model, map)
   const wide = look.chunky ? 1.12 : 1
   const tall = look.chunky ? 0.92 : 1
   model.scale.set(look.scale * wide, look.scale * tall, look.scale * wide)
@@ -571,7 +607,8 @@ function buildActor(template: ActorTemplate, map: THREE.Texture, look: Look): Ri
 
   if (look.orb && torso) {
     const box = localAabb(torso)
-    const gem = new THREE.MeshLambertMaterial({ color: 0xc45bff, emissive: 0xc45bff, emissiveIntensity: 1.6 })
+    const glow = look.orbColor ?? 0xc45bff
+    const gem = new THREE.MeshLambertMaterial({ color: glow, emissive: glow, emissiveIntensity: 1.6 })
     orb = new THREE.Mesh(new THREE.SphereGeometry(Math.max(0.06, box.getSize(new THREE.Vector3()).x * 0.12), 8, 6), gem)
     orb.position.set(box.max.x + 0.08, box.max.y * 0.45, box.max.z)
     torso.add(orb)
@@ -579,7 +616,7 @@ function buildActor(template: ActorTemplate, map: THREE.Texture, look: Look): Ri
 
   const idle = template.clips.get('idle')
   const walk = template.clips.get('walk')
-  const sprint = template.clips.get('sprint') ?? walk
+  const sprint = template.clips.get('sprint') ?? template.clips.get('run') ?? walk
   if (!idle || !walk || !sprint) throw new Error('Kenney character is missing idle/walk clips')
 
   const mixer = new THREE.AnimationMixer(model)
@@ -651,7 +688,7 @@ const BASE = {
   tierClaws: false,
 }
 
-const LOOK: Record<'hero' | 'ghoul' | 'rat' | 'wolf' | 'witch' | 'boss' | 'thug' | 'enforcer' | 'don', Look> = {
+const LOOK: Record<'hero' | 'hound' | 'walker' | 'thrall' | 'spitter' | 'boss' | 'thug' | 'enforcer' | 'don', Look> = {
   hero: {
     ...BASE,
     scale: 2.36,
@@ -667,11 +704,16 @@ const LOOK: Record<'hero' | 'ghoul' | 'rat' | 'wolf' | 'witch' | 'boss' | 'thug'
     emissiveIntensity: 0.3,
     glow: 0.8,
   },
-  ghoul: { ...BASE, scale: 1.78, tint: 0xd8f0c4, pitch: -0.06, eyes: 0xff3b3b, emissive: 0x243018, emissiveIntensity: 0.2, glow: 0.72 },
-  rat: { ...BASE, scale: 0.9, tint: 0xf0c0a8, pitch: -0.38, ears: true, snout: 0.12, tail: 0.022, eyes: 0xff4450, emissive: 0x4a2820, emissiveIntensity: 0.2, glow: 0.72 },
-  wolf: { ...BASE, scale: 1.38, tint: 0xc5d0e2, pitch: -0.28, ears: true, snout: 0.16, tail: 0.04, claws: true, eyes: 0x7dffe8, emissive: 0x222838, emissiveIntensity: 0.2, glow: 0.72 },
-  witch: { ...BASE, scale: 1.7, tint: 0xe4c8ff, pitch: 0, hat: true, orb: true, eyes: 0xff4466, emissive: 0x3a2060, emissiveIntensity: 0.24, glow: 0.72 },
-  boss: { ...BASE, scale: 2.45, tint: 0xf6d0bc, pitch: -0.16, ears: true, snout: 0.14, tail: 0.04, crown: true, cape: true, claws: true, eyes: 0xff2028, emissive: 0x5a2820, emissiveIntensity: 0.22, glow: 0.72 },
+  // A mangy fox gone to rot: the fast one that comes in packs.
+  hound: { ...BASE, scale: 0.66, tint: 0xa8c08a, grey: true, pitch: 0, emissive: 0x1e2c14, emissiveIntensity: 0.2, glow: 0.46 },
+  // Green-grey and hunched, with bile-yellow eyes.
+  walker: { ...BASE, scale: 1.5, tint: 0xa6c48c, pitch: -0.16, claws: true, eyes: 0xc8ff5a, emissive: 0x1e2c16, emissiveIntensity: 0.2, glow: 0.64 },
+  // A turned one that went wrong: ashen skin, red eyes, claws.
+  thrall: { ...BASE, scale: 1.52, tint: 0xc4b6c4, pitch: -0.1, claws: true, eyes: 0xff2420, emissive: 0x2c1020, emissiveIntensity: 0.22, glow: 0.66 },
+  // A drifting cloud of plague with a bile orb it throws from.
+  spitter: { ...BASE, scale: 1.7, tint: 0xb4f0a8, pitch: 0, orb: true, orbColor: 0x9cff3a, eyes: 0xe0ff40, emissive: 0x1a3a10, emissiveIntensity: 0.26, glow: 0.74 },
+  // The Rat King: a bloated plague-lord with a crown and a cape of rags.
+  boss: { ...BASE, scale: 2.5, tint: 0xc8a4b4, pitch: -0.18, crown: true, cape: true, claws: true, chunky: true, eyes: 0xff2028, emissive: 0x3a1828, emissiveIntensity: 0.24, glow: 0.68 },
   thug: { ...BASE, scale: 1.82, tint: 0xffffff, pitch: 0, fedora: true, shades: true, emissive: 0x12141c, emissiveIntensity: 0.15, glow: 0.48 },
   enforcer: { ...BASE, scale: 2.15, tint: 0xfff4f2, pitch: 0, fedora: true, shades: true, emissive: 0x1a1014, emissiveIntensity: 0.15, glow: 0.46 },
   don: { ...BASE, scale: 2.48, tint: 0xfff8f2, pitch: 0, fedora: true, shades: true, cape: true, emissive: 0x140e12, emissiveIntensity: 0.18, glow: 0.5 },
@@ -710,129 +752,6 @@ async function loadProps(paths: string[], glow: number): Promise<Record<string, 
     }),
   )
   return Object.fromEntries(entries)
-}
-
-class CritterDriver implements KenneyDriver {
-  constructor(
-    private readonly mixer: THREE.AnimationMixer,
-    private readonly idle: THREE.AnimationAction,
-    private readonly walk: THREE.AnimationAction,
-    private readonly run: THREE.AnimationAction,
-    private readonly bob: THREE.Group,
-  ) {
-    for (const action of [idle, walk, run]) {
-      action.setLoop(THREE.LoopRepeat, Infinity)
-      action.play()
-    }
-  }
-
-  update(state: KenneyAnimState): void {
-    const gait = clamp(state.gait, 0, 1)
-    const runK = smoother(0.55, 0.9, gait)
-    this.idle.setEffectiveWeight(1 - gait)
-    this.walk.setEffectiveWeight(gait * (1 - runK))
-    this.run.setEffectiveWeight(gait * runK)
-    this.walk.timeScale = 0.85 + gait * 0.7
-    this.run.timeScale = 0.9
-    this.mixer.update(state.dt)
-    const bite = state.swing > 0 ? Math.sin(Math.min(1, state.swing) * Math.PI) : 0
-    const hop = Math.abs(Math.sin(state.time * (5 + gait * 4))) * (0.02 + gait * 0.05)
-    this.bob.position.set(0, hop, bite * 0.16)
-    this.bob.rotation.set(-bite * 0.4, 0, 0)
-  }
-}
-
-function clipNamed(clips: Map<string, THREE.AnimationClip>, part: string): THREE.AnimationClip {
-  for (const [name, clip] of clips) {
-    if (name.endsWith(part) || name.includes(`_${part}`)) return clip
-  }
-  throw new Error(`Rat clip ${part} is missing`)
-}
-
-function buildCritter(template: ActorTemplate, height: number, crown: boolean): Rig {
-  const model = cloneSkinned(template.scene) as THREE.Group
-  model.traverse((child) => {
-    const mesh = child as THREE.Mesh
-    if (!mesh.isMesh) return
-    const srcs = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
-    const next = srcs.map((src) => {
-      const pink = (src.name || '').toLowerCase().includes('pink')
-      const mat = new THREE.MeshLambertMaterial({
-        color: new THREE.Color(pink ? 0xffd2c8 : 0xf3c4a4),
-        emissive: new THREE.Color(pink ? 0xff8d84 : 0xc47862),
-        emissiveIntensity: pink ? 0.8 : 0.95,
-        side: THREE.DoubleSide,
-      })
-      mat.userData.flashable = true
-      return mat
-    })
-    mesh.material = next.length === 1 ? next[0] : next
-    mesh.castShadow = false
-    mesh.receiveShadow = false
-  })
-  model.updateWorldMatrix(true, true)
-  const raw = new THREE.Box3().setFromObject(model)
-  const rawSize = raw.getSize(new THREE.Vector3())
-  const fit = height / Math.max(0.001, rawSize.y)
-  model.scale.multiplyScalar(fit)
-  model.updateWorldMatrix(true, true)
-  const fitted = new THREE.Box3().setFromObject(model)
-  const mid = fitted.getCenter(new THREE.Vector3())
-  model.position.set(-mid.x, -fitted.min.y, -mid.z)
-
-  const mixer = new THREE.AnimationMixer(model)
-  const bob = new THREE.Group()
-  bob.add(model)
-  if (crown) {
-    const gold = new THREE.MeshLambertMaterial({ color: 0xe8c25a, emissive: 0x6a4010, emissiveIntensity: 0.55 })
-    const gemMat = new THREE.MeshLambertMaterial({ color: 0xff2244, emissive: 0xff2244, emissiveIntensity: 1.4 })
-    const crownGroup = new THREE.Group()
-    const band = new THREE.Mesh(new THREE.TorusGeometry(height * 0.16, height * 0.035, 6, 10), gold)
-    band.rotation.x = Math.PI / 2
-    crownGroup.add(band)
-    for (let i = 0; i < 5; i++) {
-      const a = (i / 5) * Math.PI * 2
-      const spike = new THREE.Mesh(new THREE.ConeGeometry(height * 0.04, height * 0.16, 4), gold)
-      spike.position.set(Math.sin(a) * height * 0.14, height * 0.08, Math.cos(a) * height * 0.14)
-      crownGroup.add(spike)
-    }
-    const gem = new THREE.Mesh(new THREE.OctahedronGeometry(height * 0.045, 0), gemMat)
-    gem.position.set(0, height * 0.06, height * 0.16)
-    crownGroup.add(gem)
-    crownGroup.position.y = height * 0.92
-    bob.add(crownGroup)
-  }
-  const root = new THREE.Group()
-  root.name = 'actor'
-  root.add(bob)
-  const shadow = new THREE.Mesh(
-    new THREE.CircleGeometry(height * 0.42, 16),
-    new THREE.MeshLambertMaterial({ color: 0x140810, transparent: true, opacity: 0.38, depthWrite: false }),
-  )
-  shadow.rotation.x = -Math.PI / 2
-  shadow.position.y = 0.02
-  root.add(shadow)
-  root.userData.barY = height + 0.2
-  const drive = new CritterDriver(
-    mixer,
-    mixer.clipAction(clipNamed(template.clips, 'Idle')),
-    mixer.clipAction(clipNamed(template.clips, 'Walk')),
-    mixer.clipAction(clipNamed(template.clips, 'Run')),
-    bob,
-  )
-  const empty = new THREE.Group()
-  return {
-    root,
-    bob,
-    head: empty,
-    armL: empty,
-    armR: empty,
-    legL: empty,
-    legR: empty,
-    claws: [],
-    drive,
-    mats: {},
-  }
 }
 
 async function loadActor(path: string): Promise<ActorTemplate> {
@@ -1719,14 +1638,15 @@ export async function loadKenney(): Promise<KenneyLib> {
   const pets = 'kenney/cube-pets'
   const holiday = 'kenney/holiday-kit'
   const blocky = 'kenney/blocky-characters'
-  const [graveMap, zombie, ghost, suitB, suitE, suitH, ratRig, kay] = await Promise.all([
+  const [graveMap, zombie, ghost, vampire, fox, suitB, suitE, suitH, kay] = await Promise.all([
     loadTexture(`${grave}/Textures/colormap.png`),
     loadActor(`${grave}/character-zombie.glb`),
     loadActor(`${grave}/character-ghost.glb`),
+    loadActor(`${grave}/character-vampire.glb`),
+    loadActor(`${pets}/animal-fox.glb`),
     loadActor(`${blocky}/character-b.glb`),
     loadActor(`${blocky}/character-e.glb`),
     loadActor(`${blocky}/character-h.glb`),
-    loadActor('cc0/rat.glb'),
     loadKaykit(),
   ])
   const packs = await Promise.all([
@@ -1842,11 +1762,12 @@ export async function loadKenney(): Promise<KenneyLib> {
     fadeBlockers,
     drift: (dt) => driftCity(dt),
     hero: () => kay.hero(),
-    ghoul: () => kay.ghoul(),
-    rat: () => buildCritter(ratRig, 0.95, false),
-    wolf: () => buildActor(zombie, graveMap, LOOK.wolf),
-    witch: () => buildActor(ghost, graveMap, LOOK.witch),
-    boss: () => buildCritter(ratRig, 2.45, true),
+    hound: () => buildActor(fox, graveMap, LOOK.hound),
+    walker: () => buildActor(zombie, graveMap, LOOK.walker),
+    thrall: () => buildActor(vampire, graveMap, LOOK.thrall),
+    spitter: () => buildActor(ghost, graveMap, LOOK.spitter),
+    skeleton: () => kay.skeleton(),
+    boss: () => buildActor(zombie, graveMap, LOOK.boss),
     thug: () => buildActor(suitH, graveMap, LOOK.thug),
     enforcer: () => buildActor(suitB, graveMap, LOOK.enforcer),
     don: () => buildActor(suitE, graveMap, LOOK.don),

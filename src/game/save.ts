@@ -1,6 +1,7 @@
 import { ATTRS, zeroAttrs } from './attributes'
 import { CLAW_TIERS, OFFLINE_CAP_SEC, OFFLINE_MIN_SEC, clawTier, grantXp } from './balance'
-import { DANGERS, DISTRICT_IDS, RITES, RITE_IDS, POWER_MAX, emptyPurse, type Purse } from './nights'
+import { CURRENCIES, DANGERS, DISTRICT_IDS, RITES, RITE_IDS, POWER_MAX, emptyPurse, type Purse } from './nights'
+import { COSMETICS, DEFAULT_LOOK, LOOK_SLOTS, WORK_IDS, WORK_MAX, type WorkId } from './haven'
 import type { NightSave, OfflineReport, SaveData, Stat, WeaponRank } from './types'
 import { SKILLS, SLOTS, STATS } from './types'
 import { WEAPON_KINDS, isWeaponKind, type WeaponKind } from './weapons'
@@ -20,6 +21,12 @@ export function freshSave(now = Date.now()): SaveData {
     blood: 0,
     ichor: 0,
     vitae: 0,
+    bone: 0,
+    bile: 0,
+    brass: 0,
+    works: Object.fromEntries(WORK_IDS.map((id) => [id, 0])) as Record<WorkId, number>,
+    wardrobe: [],
+    wear: { ...DEFAULT_LOOK },
     weaponTier: 'teethling',
     powers: { bats: 0, drain: 0, dash: 0, nova: 0 },
     rites: { night: 0, pact: 0, frenzy: 0, scent: 0, thrall: 0 },
@@ -86,10 +93,24 @@ function sanitize(raw: unknown): SaveData | null {
   base.ichor = Math.max(0, Math.floor(num('ichor', 0)))
   base.vitae = Math.max(0, Math.floor(num('vitae', 0)))
   base.extracts = Math.max(0, Math.floor(num('extracts', 0)))
+  base.bone = Math.max(0, Math.floor(num('bone', 0)))
+  base.bile = Math.max(0, Math.floor(num('bile', 0)))
+  base.brass = Math.max(0, Math.floor(num('brass', 0)))
   const int = (v: unknown, max: number) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(max, Math.floor(v))) : 0)
   if (isRecord(raw.powers)) for (const id of SKILLS) base.powers[id] = int(raw.powers[id], POWER_MAX)
   if (isRecord(raw.rites)) for (const id of RITE_IDS) base.rites[id] = int(raw.rites[id], RITES[id].costs.length)
   if (isRecord(raw.danger)) for (const id of DISTRICT_IDS) base.danger[id] = int(raw.danger[id], DANGERS.length - 1)
+  if (isRecord(raw.works)) for (const id of WORK_IDS) base.works[id] = int(raw.works[id], WORK_MAX)
+  if (Array.isArray(raw.wardrobe)) {
+    base.wardrobe = COSMETICS.filter((c) => (raw.wardrobe as unknown[]).includes(c.id)).map((c) => c.id)
+  }
+  if (isRecord(raw.wear)) {
+    for (const slot of LOOK_SLOTS) {
+      const id = raw.wear[slot]
+      const look = COSMETICS.find((c) => c.id === id && c.slot === slot)
+      if (look && (Object.keys(look.cost).length === 0 || base.wardrobe.includes(look.id))) base.wear[slot] = look.id
+    }
+  }
   // Saves from before Ichor earned their tier from the weapon's level; they keep it.
   const tier = CLAW_TIERS.find((t) => t.id === raw.weaponTier)
   base.weaponTier = tier ? tier.id : clawTier(base.gear.weapon).id
@@ -117,7 +138,7 @@ function readNight(raw: unknown): NightSave | null {
   if (!district) return null
   const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, v) : 0)
   const carried: Purse = emptyPurse()
-  if (isRecord(raw.carried)) for (const k of ['blood', 'ichor', 'vitae'] as const) carried[k] = n(raw.carried[k])
+  if (isRecord(raw.carried)) for (const k of CURRENCIES) carried[k] = n(raw.carried[k])
   return {
     district,
     danger: Math.min(DANGERS.length - 1, Math.floor(n(raw.danger))),

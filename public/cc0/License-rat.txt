@@ -1,9 +1,0 @@
-Quaternius Rat
-Source model: https://poly.pizza/m/iltq5bVNaV
-Pack: Easy Enemy Pack, https://quaternius.com/packs/easyenemy.html
-Author: Quaternius
-License: CC0 1.0 Universal
-https://creativecommons.org/publicdomain/zero/1.0/
-
-Used for the gutter rat and, scaled up with a crown, the Rat King.
-The file is the CC0 Rat.glb from that pack (idle, walk, and run clips).

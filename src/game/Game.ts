@@ -1,7 +1,9 @@
 import * as THREE from 'three'
 import {
   ARENA_R,
+  BOSS_MATERIALS,
   ENEMIES,
+  MATERIAL_LABEL,
   FEED_COLOR,
   MAX_GEAR,
   NODE,
@@ -9,7 +11,10 @@ import {
   GROWTH,
   KING_ARENA,
   LITTER,
-  NESTS,
+  PODS,
+  POD_ALERT,
+  POD_LEASH,
+  POD_WAKE,
   bossBlueprint,
   donBlueprint,
   combatStat,
@@ -34,6 +39,9 @@ import {
   xpNeed,
   type ClawTierId,
   type CombatProfile,
+  type Foe,
+  type Material,
+  type PodDef,
 } from './balance'
 import { ATTRS, POINTS_PER_LEVEL, attrPointsLeft, effectiveAttrs, weaponType, type Attr } from './attributes'
 import { Hud } from './hud'
@@ -46,7 +54,6 @@ import {
   createEnforcer,
   createGhoul,
   createHero,
-  createRat,
   createThug,
   createWitch,
   createWolf,
@@ -78,6 +85,8 @@ import {
   bossLoot,
   eliteChance,
   eliteIchor,
+  bankedPurse,
+  CURRENCIES,
   emptyPurse,
   formatClock,
   frenzyCap,
@@ -95,8 +104,29 @@ import {
 import { SKILLS, STATS } from './types'
 import { WEAPONS, WEAPON_KINDS, isWeaponKind, swingTime, weaponName, weaponTraits, type SwingDef, type WeaponKind } from './weapons'
 import type { KenneyLib } from './kenney'
+import {
+  COSMETICS,
+  DPS_WINDOW,
+  HAVEN,
+  HAVEN_START,
+  RANGE_SPOTS,
+  STATIONS,
+  STATION_REACH,
+  WORKS,
+  WORK_IDS,
+  DEFAULT_LOOK,
+  LOOK_SLOTS,
+  LOOK_SLOT_LABEL,
+  canAfford,
+  cosmetic,
+  workCost,
+  type LookSlot,
+  type StationDef,
+  type WorkId,
+} from './haven'
+import { buildYard, type YardHandle } from './yard'
 import { createStage, makeDrift, qualityLow, type Stage } from './polish'
-import { DISTRICT_OPEN, FOG_COLOR, HERO_START, MOB_ARRIVE, MOB_GATE, MOB_Z, NORTH_ALLEY_SHIFT, SLUM_GATE, SLUM_RETURN, buildWorld, inSlums, nearestSlum, setNodeVisual, type WorldHandle } from './world'
+import { DISTRICT_OPEN, FOG_COLOR, MOB_ARRIVE, MOB_GATE, MOB_Z, NORTH_ALLEY_SHIFT, SLUM_GATE, SLUM_RETURN, buildWorld, inSlums, nearestSlum, setNodeVisual, type WorldHandle } from './world'
 
 /**
  * Root yaw for the hero's `facing`. Hero facing is kept so the body looks
@@ -139,8 +169,8 @@ interface Actor {
   armor: number
   rewardXp: number
   rewardBlood: number
-  /** Index into the Slums nest list. -1 for litter, bosses, and the held district. */
-  nest: number
+  /** Index into the Slums pod list. -1 for litter, bosses, dummies, and the mob district. */
+  pod: number
   returns: boolean
   barLag: number
   barT: number
@@ -257,16 +287,37 @@ const PAD_LAYOUT: [number, number][] = [
 const MOB_PADS: [number, number][] = PAD_LAYOUT.map(([x, z]) => [x * 0.85, z * 0.85 + MOB_Z])
 const PADS: [number, number][] = PAD_LAYOUT.map(([x, z]) => (x === 0.8 && z === 13.6 ? [x, z + NORTH_ALLEY_SHIFT] : [x, z]))
 
-interface NestRuntime {
-  kind: Exclude<EnemyKind, 'boss' | 'don'>
-  x: number
-  z: number
-  role: 'opening' | 'later' | 'alt'
-  actor: Actor | null
+interface PodRuntime {
+  members: Actor[]
+  /** Seconds until a wiped pod can wake again. */
   timer: number
+  /** Seconds left of the pod hunting the hero together. */
+  alert: number
+  /** Danger the members were rolled at, so a fresh night re-rolls. */
+  rolls: number
 }
 
 const HERO_CLEAR = 2.15
+
+/** Procedural stand-ins when the model packs fail to load. */
+const FALLBACK: Record<Foe, () => Rig> = {
+  hound: createWolf,
+  walker: createGhoul,
+  thrall: createGhoul,
+  spitter: createWitch,
+  skeleton: createGhoul,
+  thug: createThug,
+  enforcer: createEnforcer,
+}
+
+function rollMix(mixes: PodDef['mixes']): Foe[] {
+  let roll = Math.random() * mixes.reduce((sum, mix) => sum + mix.weight, 0)
+  for (const mix of mixes) {
+    roll -= mix.weight
+    if (roll <= 0) return mix.kinds
+  }
+  return mixes[0].kinds
+}
 
 /** The mob district's square at dusk. Thugs and enforcers come back to the pads when they fall. */
 const MOB_OPENING: [Exclude<EnemyKind, 'boss' | 'don'>, number, number][] = [
@@ -392,6 +443,14 @@ export class Game {
   })
   /** The gear menu was opened from the Haven board, so closing it goes back there. */
   private backToHaven = false
+  private yard!: YardHandle
+  /** The Haven station the hero stands at, if any. */
+  private station: StationDef | null = null
+  /** Hits on each range dummy, by actor id: when and how much. */
+  private rangeLog = new Map<number, { t: number; amount: number }[]>()
+  /** One readout per range spot, and which dummy stands on each. */
+  private rangeTags: HTMLDivElement[] = []
+  private rangeSpot = new Map<number, number>()
   /** Scripted walk for the environment tour. Normal play leaves this null. */
   private guide: { x: number; z: number } | null = null
   private guideSpeed = 1.85
@@ -420,7 +479,7 @@ export class Game {
   private lockRing: THREE.Mesh
   private aimRing: THREE.Mesh
   private debugCam: 'play' | 'close' | 'claws' | 'enemy' | 'duel' | 'portrait' | 'facade' | 'map' | 'king' = 'play'
-  private nests: NestRuntime[] = []
+  private pods: PodRuntime[] = []
   private readonly kenney: KenneyLib | null
   private stage!: Stage
   private drift!: ReturnType<typeof makeDrift>
@@ -465,6 +524,8 @@ export class Game {
     this.scene.add(this.camera)
 
     this.world = buildWorld(this.scene, kenney ? (scene, blocks) => kenney.dress(scene, blocks) : undefined)
+    this.yard = buildYard(this.scene, qualityLow())
+    this.world.obstacles.push(...this.yard.obstacles)
     for (const id of ['crypt', 'fountain'] as const) {
       const node = this.world.nodes[id]
       node.group.userData.readyAt = 0
@@ -612,6 +673,9 @@ export class Game {
       blood: this.bloodMat,
       ichor: new THREE.MeshLambertMaterial({ color: 0x7a2ad8, emissive: 0xb45cff, emissiveIntensity: 2 }),
       vitae: new THREE.MeshLambertMaterial({ color: 0xffe2a0, emissive: 0xffc860, emissiveIntensity: 2.2 }),
+      bone: new THREE.MeshLambertMaterial({ color: 0xf2ead6, emissive: 0xbab098, emissiveIntensity: 1.2 }),
+      bile: new THREE.MeshLambertMaterial({ color: 0x9cff3a, emissive: 0x6ad81a, emissiveIntensity: 1.8 }),
+      brass: new THREE.MeshLambertMaterial({ color: 0xe8b84a, emissive: 0xc88a1a, emissiveIntensity: 1.6 }),
     }
     this.makeBeacons()
 
@@ -637,14 +701,14 @@ export class Game {
       this.world.gateGlow.emissiveIntensity = 1.7
       this.world.gateGlow.color.setHex(0xff4ad8)
     }
-    this.hud.setDistrict('THE SLUMS')
+    this.hud.setDistrict('THE HAVEN')
     const prof = profile(this.save)
     const heroRig = kenney ? kenney.hero() : createHero()
-    const start = HERO_START
+    const start = HAVEN_START
     this.hero = this.makeActor('hero', heroRig, start.x, start.z, prof.hp, 0.4, 1.95)
     this.applyWeaponLook()
 
-    this.resetNests()
+    this.resetPods()
     this.layDummies()
     this.paintSpawns()
 
@@ -657,11 +721,13 @@ export class Game {
     this.hud.onEquip = (kind) => this.equip(kind)
     this.hud.onSummon = () => this.trySummon()
     this.hud.onClaim = () => this.claimOffline()
-    this.hud.onOpenHaven = () => this.openHaven()
+    this.hud.onOpenHaven = () => this.interact()
     this.hud.onCloseHaven = () => this.hud.showHaven(false)
     this.hud.onBeginNight = (district, danger) => this.beginNight(district, danger)
     this.hud.onBuyPower = (id) => this.buyPower(id)
     this.hud.onBuyRite = (id) => this.buyRite(id)
+    this.hud.onBuyWork = (id) => this.buyWork(id)
+    this.hud.onLook = (id) => this.pickLook(id)
     this.hud.onAscend = () => this.ascend()
     this.hud.onAbandon = () => this.loseNight('fled')
     this.hud.onLeaveSummary = () => {
@@ -685,6 +751,7 @@ export class Game {
       if (e.code === 'Escape') this.closeMenu()
       if (e.code === 'KeyM') this.toggleMute()
       if (e.code === 'KeyB') this.trySummon()
+      if (e.code === 'KeyE' || e.code === 'Enter') this.interact()
     })
 
     const unlock = () => this.sfx.unlock()
@@ -703,7 +770,7 @@ export class Game {
     else if (this.foes) {
       this.beginNight('slums', 0)
       if (params.has('don') && this.save.bossKills > 0) this.beginNight('mob', 0)
-    } else if (!report) this.openHaven()
+    } else if (!report) this.hud.toast('The Haven. Walk to the Night Gate to hunt.')
     this.hud.setNightHud(null)
     this.updateHud()
 
@@ -808,6 +875,7 @@ export class Game {
       this.updateDrops(dt)
       this.updateBolts(dt, prof)
       this.updateNodes(dt)
+      this.updateHaven(dt)
       this.motes(dt)
       this.activeAcc += dt
       if (this.activeAcc >= 1 && !this.freezeClock) {
@@ -851,6 +919,7 @@ export class Game {
     this.updateFloats(dt)
     this.updateBars(dt)
     this.updateBeacons(dt)
+    this.updateRange()
     this.updateHud()
     if (this.portraitTries < 8 && this.frames >= 1) this.snapPortrait()
     if (!this.weaponIcons && this.frames >= 1) this.snapWeaponIcons()
@@ -1166,7 +1235,7 @@ export class Game {
 
   private updateEnemies(dt: number): void {
     const hero = this.hero
-    this.tickNests(dt)
+    this.tickPods(dt)
     for (const e of this.enemies) {
       if (e.dummy) {
         e.moving = 0
@@ -1178,19 +1247,6 @@ export class Game {
         e.dmg = 0
         e.hitFlash = Math.max(0, e.hitFlash - dt)
         e.flinch = Math.max(0, e.flinch - dt)
-        if (e.dead) {
-          const first = e.deathT === 0
-          e.deathT += dt
-          const p = Math.min(1, e.deathT / 0.65)
-          e.rig.bob.scale.set(1 + p * 0.08, Math.max(0.05, 1 - p), 1)
-          e.rig.bob.position.y = -p * 0.42
-          if (e.deathT > 0.65) {
-            e.rig.root.visible = false
-            e.bar.style.display = 'none'
-          }
-          if (!first) e.respawn -= dt
-          if (e.respawn <= 0.001) this.reviveDummy(e)
-        }
         this.placeActor(e)
         this.animateActor(e, dt)
         continue
@@ -1203,7 +1259,7 @@ export class Game {
         if (e.deathT > 0.4) {
           e.rig.root.visible = false
           if (e.bar) e.bar.style.display = 'none'
-          if (e.returns && e.nest < 0 && e.kind !== 'boss' && e.kind !== 'don' && e.kind !== 'hero') {
+          if (e.returns && e.pod < 0 && e.kind !== 'boss' && e.kind !== 'don' && e.kind !== 'hero') {
             const kind = e.kind
             e.respawn -= dt
             if (e.respawn <= 0 && this.livingKind(kind) < this.kindCap(kind)) {
@@ -1255,7 +1311,7 @@ export class Game {
       const def = e.kind === 'boss' || e.kind === 'don' ? null : ENEMIES[e.kind]
       const speed = sheet ? sheet.speed : e.speed
       const range = bossing ? 1.45 : def!.range
-      const aggro = bossing ? 12 : def!.aggro
+      const aggro = bossing ? 12 : this.podAggro(e, def!.aggro)
       if (bossing && e.poundT > 0) {
         e.poundT -= dt
         e.moving = 0
@@ -1274,14 +1330,14 @@ export class Game {
         }
       } else if (dist < aggro && !hero.dead) {
         this.turnTowardPoint(e, hero.x, hero.z, dt, 8)
-        if (e.kind === 'witch' && dist < range && dist > 2.3) {
+        if (e.kind === 'spitter' && dist < range && dist > 2.3) {
           e.moving = 0.2
           e.atkCd -= dt
           if (e.atkCd <= 0) {
-            e.atkCd = ENEMIES.witch.cd
+            e.atkCd = ENEMIES.spitter.cd
             this.shootBolt(e, e.dmg)
           }
-        } else if (e.kind === 'witch' && dist <= 2.3) {
+        } else if (e.kind === 'spitter' && dist <= 2.3) {
           const dx = e.x - hero.x
           const dz = e.z - hero.z
           const len = Math.hypot(dx, dz) || 1
@@ -1321,7 +1377,7 @@ export class Game {
             } else {
               for (const mark of LITTER) {
                 const spot = this.litterSpot(mark.x, mark.z)
-                if (spot) this.spawnEnemy('rat', spot.x, spot.z, { returns: false })
+                if (spot) this.spawnEnemy('hound', spot.x, spot.z, { returns: false })
               }
               this.hud.toast('The king calls his litter')
             }
@@ -1329,7 +1385,11 @@ export class Game {
         }
       } else {
         e.wanderT -= dt
-        if (e.wanderT <= 0) {
+        const home = this.podHome(e)
+        if (home) {
+          e.wanderA = Math.atan2(home.x - e.x, home.z - e.z)
+          e.wanderT = 0.6
+        } else if (e.wanderT <= 0) {
           e.wanderT = 1.2 + Math.random() * 1.8
           e.wanderA = Math.random() * Math.PI * 2
         }
@@ -1550,6 +1610,11 @@ export class Game {
       lookTarget.set(hero.x + Math.sin(f) * 7, 2.35, hero.z + Math.cos(f) * 7)
       this.world.fog.near = 3
       this.world.fog.far = 22
+    } else if (this.debugCam === 'map' && this.inHaven()) {
+      desired.set(HAVEN.x + 9, 24, HAVEN.z + 11)
+      lookTarget.set(HAVEN.x, 0, HAVEN.z)
+      this.world.fog.near = 60
+      this.world.fog.far = 90
     } else if (this.debugCam === 'map') {
       desired.set(-22, 158, -4)
       lookTarget.set(-22, 0, -16)
@@ -1566,7 +1631,7 @@ export class Game {
     } else if (this.debugCam === 'enemy') {
       const rat =
         this.enemies.find((e) => !e.dead && e.kind === 'boss') ??
-        this.enemies.find((e) => !e.dead && e.kind === 'rat') ??
+        this.enemies.find((e) => !e.dead && e.kind === 'hound') ??
         this.enemies.find((e) => !e.dead)
       const ex = rat ? rat.x : hero.x
       const ez = rat ? rat.z : hero.z
@@ -1742,8 +1807,8 @@ export class Game {
   private updateHud(): void {
     this.hud.setHp(this.hero.maxHp > 0 ? this.hero.hp / this.hero.maxHp : 0)
     const night = this.night
-    this.hud.setPurse(night ? night.carried : { blood: this.save.blood, ichor: this.save.ichor, vitae: this.save.vitae }, !!night)
-    this.hud.setHavenButton(!night)
+    this.hud.setPurse(night ? night.carried : bankedPurse(this.save), !!night)
+    this.hud.setInteract(this.station && this.mode === 'play' ? `${this.station.verb} · ${this.station.label}` : null)
     this.hud.setLevel(this.save.level, this.save.xp / xpNeed(this.save.level))
     for (const id of SKILLS) this.hud.setSkill(id, this.cooldowns[id], this.cdMax[id])
     const boss = this.localBoss()
@@ -1760,7 +1825,7 @@ export class Game {
       const canSummon = this.hunting() && !boss && this.summonCd <= 0 && this.save.kills >= 10 && playing
       this.hud.setSummon(
         canSummon,
-        this.save.bossKills > 0 ? 'Something fat stirs under the crypt again.' : 'The Rat King is awake under the crypt.',
+        this.save.bossKills > 0 ? 'Something bloated stirs in the chapel yard again.' : 'The Rat King holds court in the chapel yard.',
         this.save.bossKills > 0 ? 'Face him again' : 'Call him out',
       )
     }
@@ -1807,7 +1872,7 @@ export class Game {
         dx = this.camFwd.x * move.y + this.camRight.x * move.x
         dz = this.camFwd.z * move.y + this.camRight.z * move.x
       } else {
-        const t = this.nearest(8, false)
+        const t = this.nearest(8, false, this.inHaven())
         if (t) {
           dx = t.x - this.hero.x
           dz = t.z - this.hero.z
@@ -1834,7 +1899,8 @@ export class Game {
       this.shake = Math.max(this.shake, 0.4)
       return
     }
-    const target = this.nearest(6.4, false)
+    // On the range, the dummies take Blood Drain too.
+    const target = this.nearest(6.4, false, this.inHaven())
     if (!target) {
       this.cooldowns.drain = 1.15
       this.cdMax.drain = 1.15
@@ -1865,52 +1931,13 @@ export class Game {
     this.floatAt(e.x, e.barY + 0.48, e.z, txt, crit ? 'crit' : '')
     this.burst(e.x, e.barY * 0.55, e.z, 0xff2438, crit ? 8 : 4, 2.4, 0.35)
     if (e.dummy) {
-      if (e.hp <= 0) this.killDummy(e)
+      this.noteRangeHit(e, amount)
       return amount
     }
     const ls = amount * profile(this.save).lifesteal
     if (!this.hero.dead) this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + ls)
     if (e.hp <= 0) this.killEnemy(e)
     return amount
-  }
-
-  /** Practice kill. No blood, xp, or kill credit. Back on the same spot at full HP after 2.0s. */
-  private killDummy(e: Actor): void {
-    e.dead = true
-    e.deathT = 0
-    e.hp = 0
-    e.respawn = 2
-    e.pending = null
-    e.knockT = 0
-    e.kx = 0
-    e.kz = 0
-    this.burst(e.x, 0.7, e.z, 0x6a3048, 12, 2.4, 0.45)
-  }
-
-  private reviveDummy(e: Actor): void {
-    e.x = e.poundX
-    e.z = e.poundZ
-    e.dead = false
-    e.deathT = 0
-    e.respawn = 0
-    e.hp = e.maxHp
-    e.dmg = 0
-    e.speed = 0
-    e.barLag = 1
-    e.barT = 0
-    e.barFlash = 0
-    e.hitFlash = 0
-    e.flinch = 0
-    e.pending = null
-    e.knockT = 0
-    e.kx = 0
-    e.kz = 0
-    e.moving = 0
-    e.rig.root.visible = true
-    e.rig.bob.scale.set(1, 1, 1)
-    e.rig.bob.position.set(0, 0, 0)
-    e.rig.bob.rotation.set(0, 0, 0)
-    this.placeActor(e)
   }
 
   private damageHero(raw: number, fromBoss: boolean): void {
@@ -1935,11 +1962,7 @@ export class Game {
     e.deathT = 0
     e.hp = 0
     const kind = e.kind
-    e.respawn = e.returns && e.nest < 0 && kind !== 'boss' && kind !== 'don' && kind !== 'hero' ? GROWTH[kind].return : 0
-    if (e.nest >= 0) {
-      const nest = this.nests[e.nest]
-      if (nest) nest.timer = GROWTH[nest.kind].return
-    }
+    e.respawn = e.returns && e.pod < 0 && kind !== 'boss' && kind !== 'don' && kind !== 'hero' ? GROWTH[kind].return : 0
     this.sfx.play('kill')
     this.noteFrenzy()
     if (e.kind === 'boss' || e.kind === 'don') {
@@ -1979,6 +2002,9 @@ export class Game {
       this.spawnDrops(e.x, e.z, blood)
       this.spawnDrops(e.x, e.z, loot.ichor, 'ichor')
       this.spawnDrops(e.x, e.z, loot.vitae, 'vitae')
+      for (const [mat, n] of Object.entries(BOSS_MATERIALS[don ? 'don' : 'boss']) as [Material, number][]) {
+        this.spawnDrops(e.x, e.z, n, mat)
+      }
       if (!don && this.save.bossKills === 1) this.hud.toast('The way to the Mob District opens at the Haven')
       if (levels) this.onLevel(levels)
       this.noteKill()
@@ -1998,6 +2024,11 @@ export class Game {
     this.floatAt(e.x, e.barY, e.z, `+1 ${def.statLabel}`, def.stat === 'strength' ? 'str' : def.stat === 'agility' ? 'agi' : def.stat === 'vitality' ? 'vit' : 'sor')
     this.floatAt(e.x, 0.4, e.z, `+${blood}`, 'blood')
     this.spawnDrops(e.x, e.z, blood)
+    if (Math.random() < def.drop.chance || e.elite) {
+      const n = def.drop.amount * (e.elite ? 2 : 1)
+      this.spawnDrops(e.x, e.z, n, def.drop.mat)
+      this.floatAt(e.x, e.barY + 0.2, e.z, `+${n} ${MATERIAL_LABEL[def.drop.mat]}`, def.drop.mat)
+    }
     if (e.elite) {
       const ichor = eliteIchor(this.night?.danger ?? 0)
       this.spawnDrops(e.x, e.z, ichor, 'ichor')
@@ -2138,15 +2169,19 @@ export class Game {
     e.rewardXp = Math.round(e.rewardXp * ELITE.xp)
   }
 
-  private resetNests(): void {
-    this.nests = NESTS.map((nest) => ({
-      kind: nest.kind,
-      x: nest.x,
-      z: nest.z,
-      role: nest.role,
-      actor: null,
-      timer: nest.role === 'later' ? GROWTH[nest.kind].return : 0,
-    }))
+  private resetPods(): void {
+    for (const pod of this.pods) for (const e of pod.members) this.dropEnemy(e)
+    this.pods = PODS.map(() => ({ members: [], timer: 0, alert: 0, rolls: 0 }))
+  }
+
+  /** Takes an enemy out of the field and the enemy list for good. */
+  private dropEnemy(e: Actor): void {
+    const at = this.enemies.indexOf(e)
+    if (at < 0) return
+    this.enemies.splice(at, 1)
+    this.removeActor(e)
+    if (this.lockId === e.id) this.lockId = null
+    if (this.aimId === e.id) this.aimId = null
   }
 
   /** Takes an actor out of the scene for good: its rig, ground shadow, and health bar. */
@@ -2162,6 +2197,8 @@ export class Game {
   private clearField(): void {
     for (const e of this.enemies) this.removeActor(e)
     this.enemies = []
+    this.rangeLog.clear()
+    this.rangeSpot.clear()
     this.boss = null
     this.don = null
     this.poundRing.visible = false
@@ -2174,7 +2211,7 @@ export class Game {
     this.drops = []
     for (const b of this.bolts) this.scene.remove(b.mesh)
     this.bolts = []
-    for (const nest of this.nests) nest.actor = null
+    this.pods = PODS.map(() => ({ members: [], timer: 0, alert: 0, rolls: 0 }))
     this.lockId = null
     this.aimId = null
   }
@@ -2229,11 +2266,7 @@ export class Game {
     const def = DISTRICTS[district]
     this.placeHero(def.start.x, def.start.z)
     if (district === 'slums') {
-      this.resetNests()
-      this.nests.forEach((nest, index) => {
-        if (nest.role !== 'opening') return
-        nest.actor = this.spawnEnemy(nest.kind, nest.x, nest.z, { nest: index, returns: true })
-      })
+      this.resetPods()
     } else {
       for (const [kind, x, z] of MOB_OPENING) this.spawnEnemy(kind, x, z)
     }
@@ -2308,14 +2341,11 @@ export class Game {
     const night = this.night
     if (!night || night.over) return
     const bonus = DANGERS[night.danger].vitae
-    const got: Purse = {
-      blood: Math.round(night.carried.blood),
-      ichor: Math.round(night.carried.ichor),
-      vitae: Math.round(night.carried.vitae) + bonus,
+    const got = emptyPurse()
+    for (const k of CURRENCIES) {
+      got[k] = Math.round(night.carried[k]) + (k === 'vitae' ? bonus : 0)
+      this.save[k] += got[k]
     }
-    this.save.blood += got.blood
-    this.save.ichor += got.ichor
-    this.save.vitae += got.vitae
     this.save.extracts += 1
     let unlock: string | null = null
     if (night.danger === this.save.danger[night.district] && night.danger < DANGERS.length - 1) {
@@ -2334,7 +2364,7 @@ export class Game {
     const keep = keepShare(this.save.rites.pact)
     const got = emptyPurse()
     const lost = emptyPurse()
-    for (const k of ['blood', 'ichor', 'vitae'] as const) {
+    for (const k of CURRENCIES) {
       got[k] = Math.floor(night.carried[k] * keep)
       lost[k] = Math.max(0, Math.round(night.carried[k]) - got[k])
       this.save[k] += got[k]
@@ -2368,30 +2398,66 @@ export class Game {
     this.hud.showSummary(null)
     this.night = null
     this.clearField()
-    this.resetNests()
+    this.resetPods()
     this.layDummies()
     this.district = 'slums'
-    this.placeHero(HERO_START.x, HERO_START.z)
-    this.hud.setDistrict('THE SLUMS')
+    this.placeHero(HAVEN_START.x, HAVEN_START.z)
+    this.hud.setDistrict('THE HAVEN')
     this.tintDawn()
     this.persist()
-    this.openHaven()
   }
 
-  private openHaven(): void {
+  /** True while the hero stands in the Haven courtyard rather than a district. */
+  private inHaven(): boolean {
+    return !this.night && this.hero.x > HAVEN.minX - 6
+  }
+
+  /** Finds the station in reach, lights it, and keeps the range readouts current. */
+  private updateHaven(dt: number): void {
+    this.yard.update(dt)
+    let near: StationDef | null = null
+    if (this.inHaven() && !this.hero.dead) {
+      let best = STATION_REACH
+      for (const s of STATIONS) {
+        // The gate's spot is the sigil on the stones in front of it.
+        const sz = s.id === 'gate' ? s.z + 1.6 : s.z
+        const d = Math.hypot(this.hero.x - s.x, this.hero.z - sz) - (s.id === 'gate' ? 0.4 : 0.55)
+        if (d < best) {
+          best = d
+          near = s
+        }
+      }
+    }
+    this.station = near
+    this.yard.highlight(near?.id ?? null)
+  }
+
+  /** The prompt button, E, or Enter: use the station in reach. */
+  private interact(): void {
+    const s = this.station
+    if (!s || this.hud.modalOpen() || this.mode === 'menu') return
+    if (s.id === 'armory') {
+      this.openMenu()
+      return
+    }
+    const tab = s.id === 'gate' ? 'hunt' : s.id === 'altar' ? 'powers' : s.id === 'wardrobe' ? 'wardrobe' : 'works'
+    this.openHaven(tab, s.id)
+  }
+
+  private openHaven(tab?: 'hunt' | 'powers' | 'rites' | 'works' | 'wardrobe', focus?: string): void {
     if (this.hunting()) {
       this.hud.toast('The Haven waits until you extract')
       return
     }
     if (this.mode === 'menu') this.closeMenu()
     this.refreshHaven()
-    this.hud.showHaven(true)
+    this.hud.showHaven(true, tab, focus)
   }
 
   private refreshHaven(): void {
     const save = this.save
     this.hud.setHaven({
-      purse: { blood: save.blood, ichor: save.ichor, vitae: save.vitae },
+      purse: bankedPurse(save),
       night: formatClock(nightLength(save.rites.night)),
       keep: Math.round(keepShare(save.rites.pact) * 100),
       extracts: save.extracts,
@@ -2434,7 +2500,118 @@ export class Game {
           canBuy: rank < max && save.vitae >= cost,
         }
       }),
+      works: WORK_IDS.map((id) => {
+        const def = WORKS[id]
+        const level = save.works[id]
+        const cost = workCost(id, level)
+        return {
+          id,
+          label: def.label,
+          blurb: def.blurb,
+          level,
+          max: def.max,
+          effect: def.effect(level),
+          next: def.effect(level + 1),
+          cost,
+          canBuy: level < def.max && canAfford(bankedPurse(save), cost),
+        }
+      }),
+      wardrobe: LOOK_SLOTS.map((slot) => ({
+        slot,
+        label: LOOK_SLOT_LABEL[slot],
+        items: COSMETICS.filter((c) => c.slot === slot).map((c) => {
+          const owned = this.ownsLook(c.id)
+          return {
+            id: c.id,
+            label: c.label,
+            color: c.color,
+            owned,
+            worn: save.wear[slot] === c.id,
+            cost: c.cost,
+            canBuy: owned || canAfford(bankedPurse(save), c.cost),
+          }
+        }),
+      })),
     })
+  }
+
+  private spend(cost: Partial<Purse>): void {
+    for (const [k, v] of Object.entries(cost) as [Currency, number][]) this.save[k] -= v
+  }
+
+  /** One more level of a Haven work, paid in materials. */
+  private buyWork(id: WorkId): void {
+    if (this.night) return
+    const level = this.save.works[id]
+    const cost = workCost(id, level)
+    if (level >= WORKS[id].max || !canAfford(bankedPurse(this.save), cost)) {
+      this.sfx.play('click')
+      return
+    }
+    this.spend(cost)
+    this.save.works[id] = level + 1
+    this.sfx.play('upgrade')
+    this.hud.toast(`${WORKS[id].label} ${level + 1}: ${WORKS[id].effect(level + 1)}`)
+    this.floatAt(this.hero.x, this.hero.barY + 0.2, this.hero.z, `${WORKS[id].label} ${level + 1}`, 'level')
+    this.syncVitals(profile(this.save))
+    this.persist()
+    this.refreshHaven()
+  }
+
+  private ownsLook(id: string): boolean {
+    const c = cosmetic(id)
+    return !!c && (Object.keys(c.cost).length === 0 || this.save.wardrobe.includes(id))
+  }
+
+  /** The wardrobe: buys a look the first time, and wears it from then on. */
+  private pickLook(id: string): void {
+    if (this.night) return
+    const c = cosmetic(id)
+    if (!c) return
+    if (!this.ownsLook(id)) {
+      if (!canAfford(bankedPurse(this.save), c.cost)) {
+        this.sfx.play('click')
+        return
+      }
+      this.spend(c.cost)
+      this.save.wardrobe.push(id)
+      this.hud.toast(`${c.label} bought`)
+    }
+    this.save.wear[c.slot] = id
+    this.sfx.play('upgrade')
+    this.applyWeaponLook()
+    this.portraitTries = 0
+    this.persist()
+    this.refreshHaven()
+  }
+
+  /** Cape dye, eye glow, and strike trail from the wardrobe, over the gear's own look. */
+  private applyLooks(): void {
+    const rig = this.hero.rig
+    const pick = (slot: LookSlot) => {
+      const id = this.save.wear[slot]
+      return id === DEFAULT_LOOK[slot] ? null : cosmetic(id) ?? null
+    }
+    const cape = rig.mats.cape
+    if (cape) {
+      if (cape.userData.base == null) {
+        cape.userData.base = cape.color.getHex()
+        cape.userData.glow = cape.emissive.getHex()
+      }
+      const dye = pick('cape')
+      cape.color.setHex(dye ? dye.color : this.save.evolved.cape ? 0xc41a3a : cape.userData.base)
+      // The cape glows from inside in its own color, or a dye goes muddy.
+      if (dye) cape.emissive.setHex(dye.color).multiplyScalar(0.55)
+      else cape.emissive.setHex(cape.userData.glow)
+    }
+    const eye = rig.mats.eye
+    if (eye) {
+      const glow = pick('eyes')?.color ?? 0xff1a3a
+      eye.color.setHex(glow)
+      eye.emissive.setHex(glow)
+    }
+    const trail = pick('trail')
+    if (trail) (this.trail.material as THREE.MeshBasicMaterial).color.setHex(trail.color)
   }
 
   private buyPower(id: SkillId): void {
@@ -2763,6 +2940,7 @@ export class Game {
     ;(this.slash.material as THREE.SpriteMaterial).color.copy(hue)
     const flash = hue.clone().lerp(new THREE.Color(0xffffff), 0.55)
     for (const slot of this.impacts) (slot.mesh.material as THREE.SpriteMaterial).color.copy(flash)
+    this.applyLooks()
   }
 
   private upgrade(): void {
@@ -2908,7 +3086,7 @@ export class Game {
       armor: 0,
       rewardXp: 0,
       rewardBlood: 0,
-      nest: -1,
+      pod: -1,
       returns: false,
       barLag: 1,
       barT: 0,
@@ -2935,46 +3113,69 @@ export class Game {
   }
 
   /**
-   * Three different practice targets in the open middle of Zone 1.
-   * They stand off the walks that lead to the north and south alleys.
+   * The Haven range: three targets along the west wall, from bare to plated.
+   * They never fall; each one keeps a running damage readout.
    */
   private layDummies(): void {
-    const spots: [Exclude<EnemyKind, 'boss' | 'don'>, number, number][] = [
-      ['ghoul', -6.4, 5.8],
-      ['witch', 4.6, 3.2],
-      ['wolf', -6.0, -6.8],
-    ]
-    for (const [kind, x, z] of spots) {
-      const actor = this.spawnEnemy(kind, x, z)
+    const kinds: Foe[] = ['walker', 'thrall', 'skeleton']
+    RANGE_SPOTS.forEach((spot, i) => {
+      const actor = this.spawnEnemy(kinds[i], spot.x, spot.z)
       actor.dummy = true
       actor.speed = 0
       actor.dmg = 0
       actor.intro = 0
-      actor.facing = Math.atan2(-x, -z)
+      actor.armor = spot.armor
+      actor.maxHp = 9999
+      actor.hp = actor.maxHp
+      actor.poundX = spot.x
+      actor.poundZ = spot.z
+      // Facing east, out across the yard.
+      actor.facing = Math.PI / 2
       actor.moving = 0
       this.placeActor(actor)
+      this.rangeLog.set(actor.id, [])
+      this.rangeSpot.set(actor.id, i)
+      if (!this.rangeTags[i]) this.rangeTags[i] = this.hud.makeReadout(`${spot.label} · ${spot.armor} armor`)
+    })
+  }
+
+  /** Damage on a range dummy: logged for the readout, and the dummy tops back up. */
+  private noteRangeHit(e: Actor, amount: number): void {
+    const log = this.rangeLog.get(e.id)
+    if (log) log.push({ t: this.sessionT, amount })
+    if (e.hp <= e.maxHp * 0.25) e.hp = e.maxHp
+  }
+
+  private updateRange(): void {
+    const shown = new Set<HTMLDivElement>()
+    for (const e of this.enemies) {
+      if (!e.dummy) continue
+      const tag = this.rangeTags[this.rangeSpot.get(e.id) ?? -1]
+      const log = this.rangeLog.get(e.id)
+      if (!tag || !log) continue
+      shown.add(tag)
+      const now = this.sessionT
+      // A pause of a few seconds starts a fresh reading.
+      if (log.length && now - log[log.length - 1].t > DPS_WINDOW + 1) log.length = 0
+      const recent = log.filter((h) => now - h.t <= DPS_WINDOW)
+      const span = log.length ? Math.max(1, Math.min(DPS_WINDOW, now - log[0].t)) : 1
+      const dps = recent.reduce((sum, h) => sum + h.amount, 0) / span
+      const total = log.reduce((sum, h) => sum + h.amount, 0)
+      const biggest = log.reduce((m, h) => Math.max(m, h.amount), 0)
+      this.hud.setReadout(tag, log.length ? formatNum(Math.round(dps)) : '—', formatNum(Math.round(total)), formatNum(Math.round(biggest)), log.length > 0)
+      const p = this.project(e.x, e.barY + 0.55, e.z)
+      this.hud.place(tag, p.x, p.y, p.vis && this.inHaven() && e.rig.root.visible && this.mode === 'play')
     }
+    for (const tag of this.rangeTags) if (!shown.has(tag)) this.hud.place(tag, 0, 0, false)
   }
 
   private spawnEnemy(
     kind: Exclude<EnemyKind, 'boss' | 'don'>,
     x: number,
     z: number,
-    opts?: { nest?: number; returns?: boolean },
+    opts?: { pod?: number; returns?: boolean },
   ): Actor {
-    const rig = this.kenney
-      ? this.kenney[kind]()
-      : kind === 'ghoul'
-        ? createGhoul()
-        : kind === 'rat'
-          ? createRat()
-          : kind === 'wolf'
-            ? createWolf()
-            : kind === 'thug'
-              ? createThug()
-              : kind === 'enforcer'
-                ? createEnforcer()
-                : createWitch()
+    const rig = this.kenney ? this.kenney[kind]() : FALLBACK[kind]()
     const def = ENEMIES[kind]
     const stats = enemyStats(kind, this.steps())
     const actor = this.makeActor(kind, rig, x, z, stats.hp, def.radius, def.barY)
@@ -2983,7 +3184,7 @@ export class Game {
     actor.armor = stats.armor
     actor.rewardXp = stats.xp
     actor.rewardBlood = stats.blood
-    actor.nest = opts?.nest ?? -1
+    actor.pod = opts?.pod ?? -1
     actor.returns = opts?.returns ?? (kind === 'thug' || kind === 'enforcer')
     this.rollElite(actor)
     this.enemies.push(actor)
@@ -3016,48 +3217,73 @@ export class Game {
     this.placeActor(e)
   }
 
-  private tickNests(dt: number): void {
+  /**
+   * Slums pods: each spot wakes a rolled group once the hero comes near,
+   * and a wiped pod comes back with a fresh roll after its respawn time.
+   */
+  private tickPods(dt: number): void {
     if (!this.hunting() || this.district !== 'slums') return
-    for (const nest of this.nests) {
-      if (nest.role === 'alt') continue
-      const actor = nest.actor
-      if (actor && !actor.dead) continue
-      if (nest.timer > 0) nest.timer -= dt
-      if (nest.timer > 0) continue
-      if (actor && actor.deathT <= 0.4) continue
-      if (this.livingKind(nest.kind) >= this.kindCap(nest.kind)) {
-        nest.timer = 0.9
-        continue
+    const hero = this.hero
+    const danger = this.night?.danger ?? 0
+    this.pods.forEach((pod, index) => {
+      const def = PODS[index]
+      const alive = pod.members.filter((e) => !e.dead)
+      if (alive.length > 0) {
+        pod.alert = Math.max(0, pod.alert - dt)
+        for (const e of alive) {
+          const aggro = ENEMIES[e.kind as Foe].aggro
+          if (e.hitFlash > 0 || Math.hypot(hero.x - e.x, hero.z - e.z) < aggro) pod.alert = POD_ALERT
+        }
+        return
       }
-      const spot = this.nestPoint(nest)
-      if (!spot) {
-        nest.timer = 1.15
-        continue
+      if (pod.members.length > 0) {
+        if (pod.members.some((e) => e.deathT <= 0.4)) return
+        for (const e of pod.members) this.dropEnemy(e)
+        pod.members = []
+        pod.timer = def.respawn
+        pod.alert = 0
+        return
       }
-      if (actor) this.revive(actor, spot.x, spot.z)
-      else {
-        const index = this.nests.indexOf(nest)
-        nest.actor = this.spawnEnemy(nest.kind, spot.x, spot.z, { nest: index, returns: true })
+      if (pod.timer > 0) {
+        pod.timer -= dt
+        return
       }
-    }
+      const away = Math.hypot(hero.x - def.x, hero.z - def.z)
+      if (away > POD_WAKE || away < 5.5) return
+      const kinds = [...rollMix(def.mixes)]
+      // Deeper dangers bring one more of the pod's lead.
+      if (danger >= 2) kinds.push(kinds[0])
+      kinds.forEach((kind, i) => {
+        const a = (i / kinds.length) * Math.PI * 2 + Math.random() * 0.5
+        const r = kinds.length > 1 ? def.spread : 0
+        let x = def.x + Math.cos(a) * r
+        let z = def.z + Math.sin(a) * r
+        if (!this.clearSpawn(x, z, ENEMIES[kind].radius)) {
+          x = def.x
+          z = def.z
+        }
+        const e = this.spawnEnemy(kind, x, z, { pod: index, returns: false })
+        e.wanderA = Math.atan2(hero.x - x, hero.z - z)
+        pod.members.push(e)
+      })
+      pod.rolls += 1
+      pod.alert = 0
+    })
   }
 
-  private nestPoint(home: NestRuntime): { x: number; z: number } | null {
-    const radius = ENEMIES[home.kind].radius
-    const order = [home, ...this.nests.filter((nest) => nest.kind === home.kind && nest !== home)]
-    for (const nest of order) {
-      if (nest !== home && nest.actor && !nest.actor.dead && nest.role !== 'alt') continue
-      if (!this.clearSpawn(nest.x, nest.z, radius)) continue
-      let blocked = false
-      for (const other of this.enemies) {
-        if (other.dead) continue
-        if (Math.hypot(other.x - nest.x, other.z - nest.z) < 0.6) blocked = true
-      }
-      if (blocked) continue
-      return { x: nest.x, z: nest.z }
-    }
-    return null
+  /** Aggro range for an enemy, wider while its pod is hunting together. */
+  private podAggro(e: Actor, base: number): number {
+    const pod = e.pod >= 0 ? this.pods[e.pod] : null
+    return pod && pod.alert > 0 ? Math.max(base, 15) : base
   }
+
+  /** Where an idle pod member should drift back to, if it strayed off its spot. */
+  private podHome(e: Actor): { x: number; z: number } | null {
+    if (e.pod < 0) return null
+    const def = PODS[e.pod]
+    return Math.hypot(e.x - def.x, e.z - def.z) > POD_LEASH ? { x: def.x, z: def.z } : null
+  }
+
 
   private clearSpawn(x: number, z: number, radius: number): boolean {
     if (!this.canOccupy(x, z, radius)) return false
@@ -3095,12 +3321,12 @@ export class Game {
   }
 
   private litterSpot(x: number, z: number): { x: number; z: number } | null {
-    if (this.clearSpawn(x, z, ENEMIES.rat.radius)) return { x, z }
+    if (this.clearSpawn(x, z, ENEMIES.hound.radius)) return { x, z }
     for (let i = 0; i < 8; i++) {
       const a = (i / 8) * Math.PI * 2
       const px = KING_ARENA.x + Math.cos(a) * 1.35
       const pz = KING_ARENA.z + Math.sin(a) * 1.35
-      if (this.clearSpawn(px, pz, ENEMIES.rat.radius)) return { x: px, z: pz }
+      if (this.clearSpawn(px, pz, ENEMIES.hound.radius)) return { x: px, z: pz }
     }
     return null
   }
@@ -3144,6 +3370,10 @@ export class Game {
   }
 
   private clampArena(x: number, z: number): { x: number; z: number } {
+    if (x > HAVEN.minX - 6) {
+      const m = 0.6
+      return { x: Math.max(HAVEN.minX + m, Math.min(HAVEN.maxX - m, x)), z: Math.max(HAVEN.minZ + m, Math.min(HAVEN.maxZ - m, z)) }
+    }
     if (z > MOB_Z * 0.5) {
       const dx = x
       const dz = z - MOB_Z
@@ -3248,7 +3478,9 @@ export class Game {
   }
 
   private canOccupy(x: number, z: number, radius: number): boolean {
-    if (z > MOB_Z * 0.5) {
+    if (x > HAVEN.minX - 6) {
+      if (x < HAVEN.minX + radius || x > HAVEN.maxX - radius || z < HAVEN.minZ + radius || z > HAVEN.maxZ - radius) return false
+    } else if (z > MOB_Z * 0.5) {
       const dx = x
       const dz = z - MOB_Z
       if (dx * dx + dz * dz > (ARENA_R - radius) * (ARENA_R - radius)) return false
@@ -3753,29 +3985,17 @@ export class Game {
   private paintSpawns(): void {
     if (!new URLSearchParams(location.search).has('spawns')) return
     this.debugCam = 'map'
-    const colors: Record<string, number> = {
-      rat: 0xe6c36a,
-      ghoul: 0xff7a32,
-      wolf: 0xff4458,
-      witch: 0xd58bff,
-    }
-    const names: Record<string, string> = {
-      rat: 'RATS',
-      ghoul: 'GHOUL',
-      wolf: 'WOLF',
-      witch: 'WITCH',
-    }
-    for (const nest of this.nests) {
-      const color = colors[nest.kind] ?? 0xffffff
+    for (const pod of PODS) {
+      const color = 0xff7a32
       const disc = new THREE.Mesh(
-        new THREE.CircleGeometry(nest.role === 'alt' ? 0.32 : 0.46, 18),
-        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: nest.role === 'alt' ? 0.45 : 0.88, depthWrite: false, fog: false }),
+        new THREE.RingGeometry(Math.max(0.3, pod.spread - 0.12), pod.spread + 0.12, 28),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.8, depthWrite: false, fog: false, side: THREE.DoubleSide }),
       )
       disc.rotation.x = -Math.PI / 2
-      disc.position.set(nest.x, 0.08, nest.z)
+      disc.position.set(pod.x, 0.08, pod.z)
       this.scene.add(disc)
-      const label = this.spawnLabel(names[nest.kind] ?? nest.kind, color)
-      label.position.set(nest.x, 1.05, nest.z)
+      const label = this.spawnLabel(pod.name.toUpperCase(), color)
+      label.position.set(pod.x, 1.05, pod.z)
       this.scene.add(label)
     }
     const ring = new THREE.Mesh(
@@ -3826,7 +4046,7 @@ export class Game {
         evolved: { ...this.save.evolved },
         weapon: this.save.weapon,
         weaponRank: weaponRank(this.save, this.save.weapon),
-        purse: { blood: this.save.blood, ichor: this.save.ichor, vitae: this.save.vitae },
+        purse: bankedPurse(this.save),
         weaponTier: this.save.weaponTier,
         powers: { ...this.save.powers },
         rites: { ...this.save.rites },
@@ -3918,13 +4138,13 @@ export class Game {
         tris: this.paintedTris,
         muted: this.save.muted,
         bloodText: formatNum(this.save.blood),
-        nests: this.nests.map((nest) => ({
-          kind: nest.kind,
-          role: nest.role,
-          x: nest.x,
-          z: nest.z,
-          live: !!(nest.actor && !nest.actor.dead),
-          timer: +nest.timer.toFixed(2),
+        pods: this.pods.map((pod, i) => ({
+          name: PODS[i].name,
+          x: PODS[i].x,
+          z: PODS[i].z,
+          live: pod.members.filter((e) => !e.dead).map((e) => e.kind),
+          alert: +pod.alert.toFixed(2),
+          timer: +pod.timer.toFixed(2),
         })),
         king: { x: KING_ARENA.x, z: KING_ARENA.z, r: KING_ARENA.radius },
         roster: this.enemies
@@ -3956,6 +4176,19 @@ export class Game {
         if (this.night) this.night.elapsed = elapsed
       },
       abandon: () => this.loseNight('fled'),
+      /** Drops one enemy of a kind on a spot, for close looks at a model. */
+      spawn: (kind: Foe, x: number, z: number) => {
+        const e = this.spawnEnemy(kind, x, z)
+        e.intro = 999
+        return e.id
+      },
+      /** Kills every living enemy within `r` of the hero, as if struck down. */
+      smite: (r = 6) => {
+        for (const e of [...this.enemies]) {
+          if (e.dead || e.dummy || e.kind === 'hero') continue
+          if (Math.hypot(e.x - this.hero.x, e.z - this.hero.z) <= r) this.killEnemy(e)
+        }
+      },
       haven: () => {
         if (!this.hunting()) this.enterHaven()
       },
@@ -4051,7 +4284,7 @@ export class Game {
       ring: () => {
         const hero = this.hero
         const living = this.enemies.filter((e) => !e.dead && e.kind !== 'hero' && e.kind !== 'boss' && e.kind !== 'don')
-        const ring = living.filter((e) => e.kind !== 'witch').slice(0, 4)
+        const ring = living.filter((e) => e.kind !== 'spitter').slice(0, 4)
         const parked = living.filter((e) => !ring.includes(e))
         const spots: [number, number][] = [
           [2.15, 0.35],

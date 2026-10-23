@@ -10,12 +10,12 @@ import { WEAPON_KINDS, type WeaponKind } from './weapons'
  * Free-tier KayKit characters on the shared Rig_Medium skeleton.
  * The vampire is the Adventurers mage: pale head, solid red cape, a right-hand weapon
  * (claws, dagger, sword, or mace, one pack model per tier; see `equipWeapon` in models.ts).
- * Ghouls are the skeleton minion on the same clips.
+ * Skeletons are the minion on the same clips.
  */
 
 export interface KaykitCast {
   hero(): Rig
-  ghoul(): Rig
+  skeleton(): Rig
 }
 
 const UP = new THREE.Vector3(0, 1, 0)
@@ -51,7 +51,7 @@ interface SwingSlot {
   lunge: number
 }
 
-/** Ghouls stab. Melee_1H_Attack_Stab's thrust meets the target 0.42 s into the clip. */
+/** Skeletons stab. Melee_1H_Attack_Stab's thrust meets the target 0.42 s into the clip. */
 const STAB = 'Melee_1H_Attack_Stab'
 const STAB_CONTACT = 0.42
 /** An enemy swing runs 0.28 s and its hit lands 0.16 s in (see the enemy loop in Game.ts). */
@@ -419,11 +419,11 @@ function ground(model: THREE.Object3D, wide: number, tall: number, fitHeight: nu
   return box.max.y - box.min.y
 }
 
-function faceDetails(model: THREE.Object3D, head: THREE.Object3D, headMesh: THREE.Object3D): void {
+function faceDetails(model: THREE.Object3D, head: THREE.Object3D, headMesh: THREE.Object3D): THREE.MeshLambertMaterial | undefined {
   model.updateWorldMatrix(true, true)
   const box = new THREE.Box3().setFromObject(headMesh)
   const size = box.getSize(new THREE.Vector3())
-  if (size.y < 0.05) return
+  if (size.y < 0.05) return undefined
   const scale = new THREE.Vector3()
   head.getWorldScale(scale)
   const inv = 1 / Math.max(0.001, scale.x)
@@ -460,6 +460,7 @@ function faceDetails(model: THREE.Object3D, head: THREE.Object3D, headMesh: THRE
     blush.position.copy(place(cx + side * size.x * 0.3, cy - size.y * 0.04, front - size.z * 0.02))
     head.add(blush)
   }
+  return eyeMat
 }
 
 /**
@@ -690,7 +691,7 @@ function buildVampire(
   const height = ground(model, 1.16 * HERO_SCALE, 0.98 * HERO_SCALE, null)
   const head = bone(model, 'head')
   const headMesh = model.getObjectByName('Mage_Head')
-  if (head && headMesh) faceDetails(model, head, headMesh)
+  const eye = head && headMesh ? faceDetails(model, head, headMesh) : undefined
   const claws: THREE.Object3D[] = []
   const right = bone(model, 'handslot.r')
   const weapons = {} as WeaponSet
@@ -708,7 +709,7 @@ function buildVampire(
     }
     claws.push(weapons.claws.teethling.group)
   }
-  const rig = wrap(model, height, clips, true, claws, { claw: weapons.claws?.teethling.mat, cape })
+  const rig = wrap(model, height, clips, true, claws, { claw: weapons.claws?.teethling.mat, cape, eye })
   rig.root.userData.kayFist = true
   rig.root.userData.visual = HERO_SCALE
   if (right) rig.root.userData.weapons = weapons
@@ -743,6 +744,6 @@ export async function loadKaykit(): Promise<KaykitCast> {
   const files = new Map(stems.map((stem, i) => [stem, arms[i].scene]))
   return {
     hero: () => buildVampire(mage.scene, clips, files, pale),
-    ghoul: () => buildGhoul(skel.scene, clips),
+    skeleton: () => buildGhoul(skel.scene, clips),
   }
 }

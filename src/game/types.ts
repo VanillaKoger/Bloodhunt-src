@@ -1,6 +1,7 @@
 import type { Attr } from './attributes'
 import type { ClawTierId } from './balance'
 import type { DistrictId, Purse, RiteId } from './nights'
+import type { LookSlot, WorkId } from './haven'
 import type { WeaponKind } from './weapons'
 
 export type Stat =
@@ -15,7 +16,7 @@ export type Slot = 'weapon' | 'cape' | 'coat' | 'boots'
 
 export type SkillId = 'bats' | 'drain' | 'dash' | 'nova'
 
-export type EnemyKind = 'ghoul' | 'rat' | 'wolf' | 'witch' | 'boss' | 'thug' | 'enforcer' | 'don'
+export type EnemyKind = 'hound' | 'walker' | 'thrall' | 'spitter' | 'skeleton' | 'boss' | 'thug' | 'enforcer' | 'don'
 
 export const STATS: Stat[] = [
   'strength',
@@ -54,6 +55,16 @@ export interface SaveData {
   blood: number
   ichor: number
   vitae: number
+  /** Materials from the hunt, spent on the Haven's works and wardrobe. */
+  bone: number
+  bile: number
+  brass: number
+  /** Level of each Haven work. */
+  works: Record<WorkId, number>
+  /** Cosmetic ids bought at the wardrobe. The starting looks are always owned. */
+  wardrobe: string[]
+  /** What the hero wears in each look slot. */
+  wear: Record<LookSlot, string>
   /** The weapon tier bought with Ichor. Shared by every weapon class. */
   weaponTier: ClawTierId
   /** Vitae ranks on each blood power. */

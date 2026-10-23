@@ -26,12 +26,31 @@ Kenney Animated Characters / Mixamo / Quaternius character-anim libraries were s
 
 ## The hunt loop
 
-The game opens at the Haven. From there the hero picks a district (the Slums, or the Mob District once the Rat King has fallen) and a danger (I–V; extracting at one opens the next). A night lasts 5:00 before dawn. Everything picked up is carried, and only banks by standing in a way out (a pillar of light; the HUD marker points to the nearest) until it fills. Falling, abandoning, or being caught by the sun keeps 25% of the haul (more with the Blood Pact rite). Killing quickly builds Frenzy, a Blood multiplier.
+The game opens in the Haven, a walled courtyard of its own. Walk up to a station and press its prompt (or E / Enter):
+
+- **Night Gate** (north wall): pick a district (the Slums, or the Mob District once the Rat King has fallen) and a danger (I–V; extracting at one opens the next), and step through.
+- **Range** (west wall): three practice dummies, bare, mailed (12 armor), and plated (30 armor). They never fall. Each shows a live DPS readout (the last 5 seconds), the total, and the top hit, and the reading starts over after a few seconds without a hit. Weapons, swings, and all four blood powers work on them, Blood Drain included.
+- **Blood Altar**: blood powers and rites (Vitae).
+- **Armory**: the gear and weapons menu.
+- **The works** (east and south sides): Bone Forge (+1.5% weapon damage a level), Blood Font (+2% max HP), Bile Still (+2% skill damage), Brass Coffer (+2% Blood from kills), and Ossuary (+0.4% crit). Each runs to level 30, and each level costs about 18% more than the last.
+- **Wardrobe**: cape dyes, eye glows, and strike trails. Buy one once, then wear it whenever you like.
+
+A night lasts 5:00 before dawn. Everything picked up is carried, and only banks by standing in a way out (a pillar of light; the HUD marker points to the nearest) until it fills. Falling, abandoning, or being caught by the sun keeps 25% of the haul (more with the Blood Pact rite). Killing quickly builds Frenzy, a Blood multiplier. Extracting or falling brings the hero back to the Haven.
 
 Three currencies, each for one side of the hero:
 
-- **Blood** (every kill): gear levels, in the Gear menu.
+- **Blood** (every kill): gear levels, in the Armory.
 - **Ichor** (elites and bosses): weapon tiers, the Ascend button on the weapon slot. Each tier also needs the weapon level it starts at.
 - **Vitae** (extracting, and bosses): blood powers (skill damage and cooldown) and Haven rites (longer nights, Blood Pact, Frenzy cap, elite chance, offline thralls).
 
-Spending happens only at the Haven. A reload mid-night resumes it. Rules and numbers live in `src/game/nights.ts`. `?enemies=1` still starts a Slums night at load for test runs.
+And three materials, carried and banked the same way, for the works and the wardrobe:
+
+- **Bone**: plague hounds and skeletons.
+- **Bile**: plague walkers, feral thralls, and the miasma.
+- **Brass**: thugs and enforcers.
+
+Elites drop double, and the Rat King and the Don drop a pile of each. Spending happens only at the Haven. A reload mid-night resumes it. Rules and numbers live in `src/game/nights.ts` (the night) and `src/game/haven.ts` (the yard, works, and wardrobe). `?enemies=1` still starts a Slums night at load for test runs.
+
+## The Slums
+
+Enemies stand in pods at nine fixed spots across the three courts and the alleys between them. A pod wakes when the hero comes within 24 m, rolls one of its mixes, and keeps to its spot until one of them sees the hero or is hit; then the whole pod hunts together. A wiped pod comes back 28–45 seconds later with a fresh roll. From Danger III a pod brings one more of its lead. The roster is plague hounds (fast, in packs), plague walkers, feral thralls, the miasma (stands off and spits bile), mob thugs who came down from the district, and now and then a few skeletons. The Rat King, a bloated plague lord with a crown, holds court in the chapel yard. See `ENEMY-STATS.md` for numbers and the pod list.

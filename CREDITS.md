@@ -42,9 +42,6 @@ Author: Quaternius — https://quaternius.com
 - Medieval Village MegaKit, **Standard** free tier only (not Pro or Source) — uneven brick and plaster walls, a round-tile roof, a chimney, an overhang, and exterior stairs on the old-town faces
   https://quaternius.itch.io/medieval-village-megakit
   License: `public/cc0/medieval/License_Standard.txt`
-- Rat, from the Easy Enemy Pack — gutter rat and the Rat King
-  https://poly.pizza/m/iltq5bVNaV
-  License: `public/cc0/License-rat.txt`
 - Cyberpunk Game Kit signs — three small alley signs
   https://poly.pizza/m/rsZJjigt1X
   License: `public/cc0/License-signs.txt`

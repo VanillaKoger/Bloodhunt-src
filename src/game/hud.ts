@@ -4,7 +4,8 @@ import { paintSkill, paintSlot } from './icons'
 import type { OfflineReport, SkillId, Slot, Stat } from './types'
 import { SKILLS, SLOTS, STATS } from './types'
 import { WEAPONS, WEAPON_KINDS, type WeaponKind } from './weapons'
-import type { DistrictId, Purse, RiteId } from './nights'
+import { CURRENCIES, type Currency, type DistrictId, type Purse, type RiteId } from './nights'
+import type { LookSlot, WorkId } from './haven'
 
 const GEAR_ICON = `<svg class="ico" viewBox="0 0 32 32" aria-hidden="true"><path fill="currentColor" d="M16 28.4c-5.4-1.1-9.2-4.6-10-9.2L4.6 11.2C5.2 7.2 8 5.2 11.2 4.8 12.4 7.2 14 8.6 16 8.6s3.6-1.4 4.8-3.8c3.2.4 6 2.4 6.6 6.4l-1.4 8c-.8 4.6-4.6 8.1-10 9.2z"/><path fill="none" stroke="#171b26" stroke-width="1.4" stroke-linecap="round" d="M16 11.2v11"/><path fill="none" stroke="#171b26" stroke-width="1.3" stroke-linecap="round" d="M10.2 20.6h11.6"/></svg>`
 const SOUND_ON = `<svg class="ico ico-on" viewBox="0 0 32 32" aria-hidden="true"><path fill="currentColor" d="M5 12.2h5.1L16 7.4v17.2l-5.9-4.8H5z"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M20.2 12.4a5.2 5.2 0 0 1 0 7.2M23.4 9.4a9.2 9.2 0 0 1 0 13.2"/></svg>`
@@ -38,7 +39,15 @@ export interface HavenView {
   }[]
   powers: { id: SkillId; label: string; rank: number; max: number; effect: string; cost: number; canBuy: boolean }[]
   rites: { id: RiteId; label: string; rank: number; max: number; effect: string; next: string; cost: number; canBuy: boolean }[]
+  works: { id: WorkId; label: string; blurb: string; level: number; max: number; effect: string; next: string; cost: Partial<Purse>; canBuy: boolean }[]
+  wardrobe: {
+    slot: LookSlot
+    label: string
+    items: { id: string; label: string; color: number; owned: boolean; worn: boolean; cost: Partial<Purse>; canBuy: boolean }[]
+  }[]
 }
+
+type HavenTab = 'hunt' | 'powers' | 'rites' | 'works' | 'wardrobe'
 
 export interface SummaryView {
   outcome: 'extracted' | 'fell' | 'dawn' | 'fled'
@@ -69,7 +78,14 @@ const OUTCOME: Record<SummaryView['outcome'], { title: string; flavor: string }>
   fled: { title: 'You fled', flavor: 'You left the night early. The Blood Pact held a little back.' },
 }
 
-const CURRENCY_LABEL: Record<keyof Purse, string> = { blood: 'Blood', ichor: 'Ichor', vitae: 'Vitae' }
+const CURRENCY_LABEL: Record<keyof Purse, string> = { blood: 'Blood', ichor: 'Ichor', vitae: 'Vitae', bone: 'Bone', bile: 'Bile', brass: 'Brass' }
+
+/** A cost as short coin tags: "12 Bone · 4 Brass". */
+function costText(cost: Partial<Purse>): string {
+  return (Object.entries(cost) as [Currency, number][])
+    .map(([k, v]) => `<span class="cost ${k}">${formatNum(v)} ${CURRENCY_LABEL[k]}</span>`)
+    .join(' ')
+}
 
 const STAT_LABEL: Record<Stat, string> = {
   strength: 'Strength',
@@ -108,6 +124,9 @@ export class Hud {
   onBeginNight: (district: DistrictId, danger: number) => void = () => {}
   onBuyPower: (id: SkillId) => void = () => {}
   onBuyRite: (id: RiteId) => void = () => {}
+  onBuyWork: (id: WorkId) => void = () => {}
+  /** Buy a look, or wear one already owned. */
+  onLook: (id: string) => void = () => {}
   onAscend = (): void => {}
   onAbandon = (): void => {}
   onLeaveSummary = (): void => {}
@@ -123,7 +142,9 @@ export class Hud {
   private skillBtns: Record<SkillId, HTMLButtonElement>
   private nodeTags: Record<'crypt' | 'fountain', HTMLElement>
   private attrsOpen = false
-  private havenTab: 'hunt' | 'powers' | 'rites' = 'hunt'
+  private havenTab: HavenTab = 'hunt'
+  /** The work a station opened the board on, picked out in the list. */
+  private havenFocus = ''
   /** The danger picked on each district card. */
   private pick: Partial<Record<DistrictId, number>> = {}
   private havenView: HavenView | null = null
@@ -151,6 +172,11 @@ export class Hud {
                 <div class="blood-pill"><span class="drop"></span><span id="blood">0</span></div>
                 <div class="coin-pill ichor"><span class="gem"></span><span id="ichor">0</span></div>
                 <div class="coin-pill vitae"><span class="gem"></span><span id="vitae">0</span></div>
+                <div class="mat-row">
+                  <div class="coin-pill mat bone" title="Bone"><span class="gem"></span><span id="bone">0</span></div>
+                  <div class="coin-pill mat bile" title="Bile"><span class="gem"></span><span id="bile">0</span></div>
+                  <div class="coin-pill mat brass" title="Brass"><span class="gem"></span><span id="brass">0</span></div>
+                </div>
               </div>
               <button id="btn-gear" type="button" aria-label="Open gear">${GEAR_ICON}</button>
               <button id="btn-mute" type="button" aria-label="Mute sound" aria-pressed="false">${SOUND_ON}${SOUND_OFF}</button>
@@ -161,7 +187,7 @@ export class Hud {
             <div class="boss-track"><div id="boss-fill"></div></div>
           </div>
           <div id="summon-wrap" hidden>
-            <p id="summon-text">The Rat King is awake under the crypt.</p>
+            <p id="summon-text">The Rat King holds court in the chapel yard.</p>
             <button id="btn-summon" type="button">Call him out</button>
           </div>
           <div id="night-chip" hidden>
@@ -389,7 +415,9 @@ export class Hud {
         const district = id as DistrictId
         const card = this.havenView?.districts.find((d) => d.id === district)
         this.onBeginNight(district, this.pick[district] ?? card?.best ?? 0)
-      } else if (act === 'power') this.onBuyPower(id as SkillId)
+      } else if (act === 'work') this.onBuyWork(id as WorkId)
+      else if (act === 'look') this.onLook(id)
+      else if (act === 'power') this.onBuyPower(id as SkillId)
       else if (act === 'rite') this.onBuyRite(id as RiteId)
       else if (act === 'close') this.onCloseHaven()
       else if (act === 'gear') this.onOpenMenu()
@@ -459,18 +487,41 @@ export class Hud {
     el.textContent = formatNum(n)
   }
 
-  /** The three currencies in the top bar: banked at the Haven, carried on a night. */
+  /** The currencies and materials in the top bar: banked at the Haven, carried on a night. */
   setPurse(purse: Purse, carried: boolean): void {
     this.setBlood(purse.blood)
-    this.root.querySelector('#ichor')!.textContent = formatNum(purse.ichor)
-    this.root.querySelector('#vitae')!.textContent = formatNum(purse.vitae)
+    for (const k of ['ichor', 'vitae', 'bone', 'bile', 'brass'] as const) {
+      this.root.querySelector(`#${k}`)!.textContent = formatNum(Math.floor(purse[k]))
+    }
     const tag = this.root.querySelector('#purse-tag') as HTMLElement
     tag.textContent = carried ? 'CARRIED' : 'BANKED'
     this.root.querySelector('#purse')!.classList.toggle('carried', carried)
   }
 
-  setHavenButton(show: boolean): void {
-    ;(this.root.querySelector('#btn-haven') as HTMLElement).hidden = !show
+  /** The Haven's use prompt, shown at a station. */
+  setInteract(text: string | null): void {
+    const btn = this.root.querySelector('#btn-haven') as HTMLElement
+    btn.hidden = !text
+    if (text && btn.textContent !== text) btn.textContent = text
+  }
+
+  /** A range dummy's damage readout, hung over its head. */
+  makeReadout(title: string): HTMLDivElement {
+    const el = document.createElement('div')
+    el.className = 'range-tag'
+    el.innerHTML = `<small>${title}</small><div><b>—</b><span>DPS</span></div><em></em>`
+    el.style.display = 'none'
+    this.barLayer.appendChild(el)
+    return el
+  }
+
+  setReadout(el: HTMLDivElement, dps: string, total: string, top: string, live: boolean): void {
+    el.classList.toggle('live', live)
+    const b = el.querySelector('b')!
+    if (b.textContent !== dps) b.textContent = dps
+    const em = el.querySelector('em')!
+    const line = live ? `${total} total · ${top} top hit` : 'Hit me'
+    if (em.textContent !== line) em.textContent = line
   }
 
   setNightHud(view: NightHudView | null): void {
@@ -500,8 +551,10 @@ export class Hud {
     el.querySelector('em')!.textContent = progress > 0 ? 'Leaving…' : `${label} · ${Math.round(dist)}m`
   }
 
-  showHaven(open: boolean): void {
+  showHaven(open: boolean, tab?: HavenTab, focus = ''): void {
     ;(this.root.querySelector('#haven') as HTMLElement).hidden = !open
+    if (open && tab) this.havenTab = tab
+    if (open) this.havenFocus = focus
     if (open) this.renderHaven()
     this.syncHudVisibility()
   }
@@ -526,7 +579,7 @@ export class Hud {
       view.outcome === 'extracted' ? text.flavor : `${text.flavor} You kept ${view.keep}% of the haul.`
     el.classList.toggle('lost', view.outcome !== 'extracted')
     const lines: string[] = [`<li class="head">${view.district} · Danger ${view.danger} · ${view.time} · ${view.kills} kills</li>`]
-    for (const k of ['blood', 'ichor', 'vitae'] as const) {
+    for (const k of CURRENCIES) {
       const banked = view.banked[k]
       const lost = view.lost[k]
       if (banked <= 0 && lost <= 0) continue
@@ -603,6 +656,29 @@ export class Hud {
           </div>`,
         )
         .join('')
+    } else if (this.havenTab === 'works') {
+      body = view.works
+        .map(
+          (w) => `<div class="shop-row work ${w.id === this.havenFocus ? 'focus' : ''}" data-work="${w.id}">
+            <div><b>${w.label}</b> <small>${w.level}/${w.max}</small><em>${w.level > 0 ? w.effect : w.blurb}${w.level < w.max ? ` → ${w.next}` : ''}</em></div>
+            <button type="button" data-act="work" data-id="${w.id}" ${w.canBuy ? '' : 'disabled'}>${w.level >= w.max ? 'MAX' : costText(w.cost)}</button>
+          </div>`,
+        )
+        .join('')
+      body += '<p class="haven-rules">Each level is small. They add up. Bone, Bile, and Brass come home from the hunt.</p>'
+    } else if (this.havenTab === 'wardrobe') {
+      body = view.wardrobe
+        .map(
+          (slot) => `<h4 class="look-head">${slot.label}</h4><div class="looks">${slot.items
+            .map((it) => {
+              const hex = `#${it.color.toString(16).padStart(6, '0')}`
+              const tag = it.worn ? 'Worn' : it.owned ? 'Wear' : costText(it.cost)
+              return `<button type="button" class="look ${it.worn ? 'worn' : ''} ${it.owned ? 'owned' : ''}" data-act="look" data-id="${it.id}" ${it.worn || (!it.owned && !it.canBuy) ? 'disabled' : ''}>
+                <i style="background:${hex};box-shadow:0 0 10px ${hex}"></i><b>${it.label}</b><small>${tag}</small></button>`
+            })
+            .join('')}</div>`,
+        )
+        .join('')
     } else {
       body = view.rites
         .map(
@@ -615,13 +691,14 @@ export class Hud {
     }
     const coin = (k: keyof Purse) => `<span class="coin ${k}"><i></i>${formatNum(view.purse[k])} <small>${CURRENCY_LABEL[k]}</small></span>`
     panel.innerHTML = `
-      <div class="haven-head"><h2>The Haven</h2><button type="button" class="ghost" data-act="close">Walk the yard</button></div>
-      <div class="haven-purse">${coin('blood')}${coin('ichor')}${coin('vitae')}</div>
-      <p class="haven-key">Blood levels your gear. Ichor ascends your weapon. Vitae buys powers and rites.</p>
-      <nav class="haven-tabs">${tab('hunt', 'Hunt')}${tab('powers', 'Powers')}${tab('rites', 'Rites')}</nav>
+      <div class="haven-head"><h2>The Haven</h2><button type="button" class="ghost" data-act="close">Back to the yard</button></div>
+      <div class="haven-purse">${CURRENCIES.map(coin).join('')}</div>
+      <p class="haven-key">Blood levels gear. Ichor ascends your weapon. Vitae buys powers and rites. Bone, Bile, and Brass build the works and the wardrobe.</p>
+      <nav class="haven-tabs">${tab('hunt', 'Hunt')}${tab('powers', 'Powers')}${tab('rites', 'Rites')}${tab('works', 'Works')}${tab('wardrobe', 'Wardrobe')}</nav>
       <div class="haven-body">${body}</div>
       <button type="button" class="haven-gear" data-act="gear">Gear &amp; Weapons</button>
       <p class="haven-foot">${view.extracts} night${view.extracts === 1 ? '' : 's'} survived</p>`
+    panel.querySelector('.focus')?.scrollIntoView({ block: 'nearest' })
   }
 
   /** The play HUD hides under any full-screen panel. */
@@ -775,10 +852,10 @@ export class Hud {
     const items = [
       `${formatNum(report.feeds)} creatures fed on`,
       `+${formatNum(report.blood)} Blood`,
-      `+${formatNum(report.strength)} Strength from ghouls`,
-      `+${formatNum(report.agility)} Agility from rats`,
-      `+${formatNum(report.vitality)} Vitality from wolves`,
-      `+${formatNum(report.sorcery)} Sorcery from witches`,
+      `+${formatNum(report.strength)} Strength from thralls and bones`,
+      `+${formatNum(report.agility)} Agility from hounds`,
+      `+${formatNum(report.vitality)} Vitality from walkers`,
+      `+${formatNum(report.sorcery)} Sorcery from the miasma`,
     ]
     if (report.levels > 0) items.push(`You rose ${report.levels} level${report.levels === 1 ? '' : 's'}`)
     lines.innerHTML = items.map((t) => `<li>${t}</li>`).join('')
@@ -826,7 +903,7 @@ export class Hud {
     return el
   }
 
-  makeBar(kind = 'ghoul'): HTMLDivElement {
+  makeBar(kind = 'walker'): HTMLDivElement {
     const el = document.createElement('div')
     const boss = kind === 'boss' || kind === 'don'
     el.className = boss ? 'ebar boss' : `ebar ${kind}`

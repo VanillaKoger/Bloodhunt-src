@@ -1,3 +1,4 @@
+import { WORK_STEP } from './haven'
 import { applyAttributes } from './attributes'
 import type { EnemyKind, SaveData, SkillId, Slot, Stat, WeaponRank } from './types'
 import { NORTH_ALLEY_SHIFT } from './world'
@@ -56,6 +57,13 @@ export const SKILL_META: Record<
   nova: { name: 'Crimson Nova', cd: 12, blurb: 'A ring of blood-light detonates around you.' },
 }
 
+/** Run materials. Each enemy family drops its own; the Haven's works and wardrobe spend them. */
+export type Material = 'bone' | 'bile' | 'brass'
+
+export const MATERIALS: Material[] = ['bone', 'bile', 'brass']
+
+export const MATERIAL_LABEL: Record<Material, string> = { bone: 'Bone', bile: 'Bile', brass: 'Brass' }
+
 export interface EnemyDef {
   label: string
   stat: Stat
@@ -71,11 +79,80 @@ export interface EnemyDef {
   radius: number
   barY: number
   ranged?: boolean
+  /** The material this family drops: `chance` of `amount` per kill. Elites always drop three times as much. */
+  drop: { mat: Material; chance: number; amount: number }
 }
 
-export const ENEMIES: Record<Exclude<EnemyKind, 'boss' | 'don'>, EnemyDef> = {
-  ghoul: {
-    label: 'Ghoul',
+export type Foe = Exclude<EnemyKind, 'boss' | 'don'>
+
+export const ENEMIES: Record<Foe, EnemyDef> = {
+  hound: {
+    label: 'Plague Hound',
+    stat: 'agility',
+    statLabel: 'Agility',
+    hp: 26,
+    dmg: 6,
+    speed: 2.6,
+    range: 1.05,
+    cd: 1.1,
+    aggro: 8.4,
+    xp: 4,
+    blood: 4,
+    radius: 0.34,
+    barY: 1.05,
+    drop: { mat: 'bone', chance: 0.4, amount: 1 },
+  },
+  walker: {
+    label: 'Plague Walker',
+    stat: 'vitality',
+    statLabel: 'Vitality',
+    hp: 70,
+    dmg: 11,
+    speed: 1.2,
+    range: 1.3,
+    cd: 1.7,
+    aggro: 7.2,
+    xp: 7,
+    blood: 7,
+    radius: 0.48,
+    barY: 1.75,
+    drop: { mat: 'bile', chance: 0.7, amount: 1 },
+  },
+  thrall: {
+    label: 'Feral Thrall',
+    stat: 'strength',
+    statLabel: 'Strength',
+    hp: 58,
+    dmg: 13,
+    speed: 2.1,
+    range: 1.3,
+    cd: 1.35,
+    aggro: 8.6,
+    xp: 8,
+    blood: 8,
+    radius: 0.44,
+    barY: 1.8,
+    drop: { mat: 'bile', chance: 0.5, amount: 2 },
+  },
+  spitter: {
+    label: 'Miasma',
+    stat: 'sorcery',
+    statLabel: 'Sorcery',
+    hp: 34,
+    dmg: 8,
+    speed: 1.4,
+    range: 4.6,
+    cd: 1.8,
+    aggro: 9,
+    xp: 7,
+    blood: 6,
+    radius: 0.4,
+    barY: 1.9,
+    ranged: true,
+    drop: { mat: 'bile', chance: 0.8, amount: 1 },
+  },
+  skeleton: {
+    label: 'Skeleton',
     stat: 'strength',
     statLabel: 'Strength',
     hp: 48,
@@ -88,52 +165,7 @@ export const ENEMIES: Record<Exclude<EnemyKind, 'boss' | 'don'>, EnemyDef> = {
     blood: 6,
     radius: 0.48,
     barY: 1.72,
-  },
-  rat: {
-    label: 'Gutter Rat',
-    stat: 'agility',
-    statLabel: 'Agility',
-    hp: 22,
-    dmg: 5,
-    speed: 2.45,
-    range: 1.05,
-    cd: 1.15,
-    aggro: 8.2,
-    xp: 4,
-    blood: 4,
-    radius: 0.32,
-    barY: 1.18,
-  },
-  wolf: {
-    label: 'Slum Wolf',
-    stat: 'vitality',
-    statLabel: 'Vitality',
-    hp: 62,
-    dmg: 12,
-    speed: 2.05,
-    range: 1.32,
-    cd: 1.45,
-    aggro: 8.4,
-    xp: 8,
-    blood: 7,
-    radius: 0.5,
-    barY: 1.62,
-  },
-  witch: {
-    label: 'Hedge Witch',
-    stat: 'sorcery',
-    statLabel: 'Sorcery',
-    hp: 34,
-    dmg: 8,
-    speed: 1.45,
-    range: 4.6,
-    cd: 1.75,
-    aggro: 9,
-    xp: 7,
-    blood: 6,
-    radius: 0.4,
-    barY: 1.9,
-    ranged: true,
+    drop: { mat: 'bone', chance: 1, amount: 2 },
   },
   thug: {
     label: 'Mob Thug',
@@ -149,6 +181,7 @@ export const ENEMIES: Record<Exclude<EnemyKind, 'boss' | 'don'>, EnemyDef> = {
     blood: 8,
     radius: 0.48,
     barY: 1.85,
+    drop: { mat: 'brass', chance: 0.65, amount: 1 },
   },
   enforcer: {
     label: 'Enforcer',
@@ -164,7 +197,14 @@ export const ENEMIES: Record<Exclude<EnemyKind, 'boss' | 'don'>, EnemyDef> = {
     blood: 11,
     radius: 0.56,
     barY: 2.05,
+    drop: { mat: 'brass', chance: 1, amount: 2 },
   },
+}
+
+/** What the bosses leave behind, on top of their Blood, Ichor, and Vitae. */
+export const BOSS_MATERIALS: Record<'boss' | 'don', Partial<Record<Material, number>>> = {
+  boss: { bile: 10, bone: 6, brass: 4 },
+  don: { brass: 14, bone: 4 },
 }
 
 /** Per-level growth. Level 1 with zero clears leaves the base row untouched. */
@@ -177,116 +217,152 @@ export interface Growth {
   speedCap: number
   armorStep: number
   reward: number
-  /** Seconds before this kind steps back onto its nest. */
+  /** Seconds before a mob district enemy steps back onto the square. */
   return: number
   cap: number
   /** Living cap while that district's boss is on the field. */
   capBoss: number
 }
 
-export const GROWTH: Record<Exclude<EnemyKind, 'boss' | 'don'>, Growth> = {
-  rat: {
-    role: 'skirmisher',
-    armor: 0,
-    hp: 0.07,
-    dmg: 0.04,
-    speed: 0.012,
-    speedCap: 3.1,
-    armorStep: 0.4,
-    reward: 0.06,
-    return: 4.5,
-    cap: 3,
-    capBoss: 4,
-  },
-  ghoul: {
-    role: 'bruiser',
-    armor: 4,
-    hp: 0.09,
-    dmg: 0.055,
-    speed: 0.008,
-    speedCap: 1.9,
-    armorStep: 0.8,
-    reward: 0.05,
-    return: 7,
-    cap: 2,
-    capBoss: 1,
-  },
-  wolf: {
-    role: 'hunter',
-    armor: 6,
-    hp: 0.08,
-    dmg: 0.06,
-    speed: 0.01,
-    speedCap: 2.7,
-    armorStep: 0.7,
-    reward: 0.055,
-    return: 9,
-    cap: 2,
-    capBoss: 1,
-  },
-  witch: {
-    role: 'artillery',
-    armor: 2,
-    hp: 0.06,
-    dmg: 0.07,
-    speed: 0.006,
-    speedCap: 1.8,
-    armorStep: 0.35,
-    reward: 0.07,
-    return: 11,
-    cap: 1,
-    capBoss: 0,
-  },
-  thug: {
-    role: 'muscle',
-    armor: 5,
-    hp: 0.07,
-    dmg: 0.05,
-    speed: 0.008,
-    speedCap: 2.1,
-    armorStep: 0.6,
-    reward: 0.05,
-    return: 8,
-    cap: 3,
-    capBoss: 3,
-  },
-  enforcer: {
-    role: 'wall',
-    armor: 8,
-    hp: 0.08,
-    dmg: 0.05,
-    speed: 0.006,
-    speedCap: 1.7,
-    armorStep: 0.9,
-    reward: 0.05,
-    return: 10,
-    cap: 2,
-    capBoss: 2,
-  },
+export const GROWTH: Record<Foe, Growth> = {
+  hound: { role: 'skirmisher', armor: 0, hp: 0.07, dmg: 0.04, speed: 0.012, speedCap: 3.2, armorStep: 0.4, reward: 0.06, return: 6, cap: 6, capBoss: 6 },
+  walker: { role: 'bruiser', armor: 5, hp: 0.09, dmg: 0.055, speed: 0.008, speedCap: 1.7, armorStep: 0.8, reward: 0.05, return: 8, cap: 5, capBoss: 3 },
+  thrall: { role: 'hunter', armor: 5, hp: 0.08, dmg: 0.06, speed: 0.01, speedCap: 2.8, armorStep: 0.7, reward: 0.055, return: 9, cap: 4, capBoss: 2 },
+  spitter: { role: 'artillery', armor: 2, hp: 0.06, dmg: 0.07, speed: 0.006, speedCap: 1.8, armorStep: 0.35, reward: 0.07, return: 11, cap: 3, capBoss: 1 },
+  skeleton: { role: 'bruiser', armor: 4, hp: 0.09, dmg: 0.055, speed: 0.008, speedCap: 1.9, armorStep: 0.8, reward: 0.05, return: 7, cap: 4, capBoss: 2 },
+  thug: { role: 'muscle', armor: 5, hp: 0.07, dmg: 0.05, speed: 0.008, speedCap: 2.1, armorStep: 0.6, reward: 0.05, return: 8, cap: 4, capBoss: 3 },
+  enforcer: { role: 'wall', armor: 8, hp: 0.08, dmg: 0.05, speed: 0.006, speedCap: 1.7, armorStep: 0.9, reward: 0.05, return: 10, cap: 2, capBoss: 2 },
 }
 
-export type NestRole = 'opening' | 'later' | 'alt'
-
-export interface NestDef {
-  kind: Exclude<EnemyKind, 'boss' | 'don'>
+/**
+ * A fixed Slums spawn point for a pod of enemies. A pod wakes when the hero
+ * comes near, rolls one of its mixes, idles on its spot, turns on the hero
+ * together, and comes back (with a fresh roll) a while after it is wiped out.
+ */
+export interface PodDef {
+  name: string
   x: number
   z: number
-  role: NestRole
+  /** Metres from the center the members stand at. */
+  spread: number
+  mixes: { kinds: Foe[]; weight: number }[]
+  /** Seconds after the last member falls before the pod is back. */
+  respawn: number
 }
 
-/** Hand-placed Slums nests. `later` fills up to the cap. `alt` is a fallback point. */
-export const NESTS: NestDef[] = [
-  { kind: 'rat', x: 2.2, z: -2.2, role: 'opening' },
-  { kind: 'rat', x: -4.6, z: -1.8, role: 'opening' },
-  { kind: 'rat', x: -20.9, z: -34.0, role: 'later' },
-  { kind: 'ghoul', x: -2.8, z: 6.4, role: 'opening' },
-  { kind: 'ghoul', x: -24.6, z: -48.4, role: 'later' },
-  { kind: 'ghoul', x: -8.0, z: -24.15, role: 'alt' },
-  { kind: 'wolf', x: 0.8, z: 13.6 + NORTH_ALLEY_SHIFT, role: 'opening' },
-  { kind: 'wolf', x: -42.6, z: 25.2, role: 'later' },
-  { kind: 'witch', x: 4.8, z: -4.4, role: 'opening' },
-  { kind: 'witch', x: -26.4, z: -45.2, role: 'alt' },
+export const PODS: PodDef[] = [
+  {
+    name: 'Court rabble',
+    x: 4.0,
+    z: -6.4,
+    spread: 1.3,
+    mixes: [
+      { kinds: ['hound', 'hound', 'walker'], weight: 3 },
+      { kinds: ['thug', 'thug'], weight: 2 },
+      { kinds: ['hound', 'hound', 'hound'], weight: 2 },
+    ],
+    respawn: 30,
+  },
+  {
+    name: 'Crypt steps',
+    x: -5.4,
+    z: 6.8,
+    spread: 1.2,
+    mixes: [
+      { kinds: ['walker', 'hound'], weight: 3 },
+      { kinds: ['thrall', 'hound'], weight: 2 },
+      { kinds: ['thug', 'walker'], weight: 2 },
+      { kinds: ['skeleton', 'skeleton'], weight: 1 },
+    ],
+    respawn: 34,
+  },
+  {
+    name: 'North pocket',
+    x: 0.8,
+    z: 13.6 + NORTH_ALLEY_SHIFT,
+    spread: 0.9,
+    mixes: [
+      { kinds: ['hound', 'hound'], weight: 3 },
+      { kinds: ['thrall'], weight: 2 },
+    ],
+    respawn: 28,
+  },
+  {
+    name: 'Chapel court',
+    x: -37.4,
+    z: 19.4,
+    spread: 1.4,
+    mixes: [
+      { kinds: ['walker', 'walker', 'thrall'], weight: 3 },
+      { kinds: ['thug', 'thug', 'thug'], weight: 2 },
+    ],
+    respawn: 40,
+  },
+  {
+    name: 'King\'s yard',
+    x: -44.2,
+    z: 27.2,
+    spread: 1.2,
+    mixes: [
+      { kinds: ['thrall', 'hound', 'hound'], weight: 3 },
+      { kinds: ['spitter', 'walker'], weight: 2 },
+      { kinds: ['skeleton', 'hound'], weight: 1 },
+    ],
+    respawn: 40,
+  },
+  {
+    name: 'South pocket',
+    x: -8.0,
+    z: -24.15,
+    spread: 0.9,
+    mixes: [
+      { kinds: ['spitter', 'hound'], weight: 3 },
+      { kinds: ['thug', 'thug'], weight: 2 },
+    ],
+    respawn: 32,
+  },
+  {
+    name: 'Bend pocket',
+    x: -20.9,
+    z: -34.0,
+    spread: 0.9,
+    mixes: [
+      { kinds: ['hound', 'hound', 'hound'], weight: 3 },
+      { kinds: ['walker', 'spitter'], weight: 2 },
+    ],
+    respawn: 32,
+  },
+  {
+    name: 'Bone yard',
+    x: -25.0,
+    z: -47.2,
+    spread: 1.4,
+    mixes: [
+      { kinds: ['walker', 'walker', 'spitter'], weight: 3 },
+      { kinds: ['thrall', 'thrall'], weight: 2 },
+      { kinds: ['skeleton', 'skeleton', 'skeleton'], weight: 1 },
+    ],
+    respawn: 45,
+  },
+  {
+    name: 'Sewer mouth',
+    x: -19.6,
+    z: -42.4,
+    spread: 1.2,
+    mixes: [
+      { kinds: ['thug', 'thug', 'spitter'], weight: 3 },
+      { kinds: ['walker', 'hound', 'hound'], weight: 2 },
+    ],
+    respawn: 40,
+  },
 ]
+
+/** A pod wakes once the hero is this close to its spot. */
+export const POD_WAKE = 24
+/** A pod that saw or felt the hero hunts together for this long. */
+export const POD_ALERT = 6
+/** Members drift no further than this from their spot while idle. */
+export const POD_LEASH = 2.2
 
 /** Rat King ring in Zone 2, the court south-west of the center. */
 export const KING_ARENA = { x: -40.2, z: 24.2, radius: 1.95 }
@@ -471,7 +547,7 @@ export function profile(save: SaveData): CombatProfile {
   const w = WEAPONS[save.weapon]
   const tier = heldTier(save)
   const power = tierPower(tier, weaponRank(save, save.weapon).rank)
-  return applyAttributes({
+  const prof = applyAttributes({
     dmg: (10 + str * 0.55 + save.gear.weapon * 1.35) * w.dmg * power,
     crit: Math.min(0.45, 0.05 + agi * 0.0035 + w.crit + tier.crit),
     // Attack speed is the weapon's alone. Stats, gear, and ranks never touch it.
@@ -487,6 +563,20 @@ export function profile(save: SaveData): CombatProfile {
     bloodMult: 1,
     guard: 1,
   }, save)
+  return applyWorks(prof, save)
+}
+
+/** The Haven works: small, flat percent gains on top of everything else. */
+function applyWorks(prof: CombatProfile, save: SaveData): CombatProfile {
+  const w = save.works
+  return {
+    ...prof,
+    dmg: prof.dmg * (1 + w.forge * WORK_STEP.forge),
+    hp: prof.hp * (1 + w.font * WORK_STEP.font),
+    skill: prof.skill * (1 + w.still * WORK_STEP.still),
+    bloodMult: prof.bloodMult * (1 + w.locker * WORK_STEP.locker),
+    crit: Math.min(0.5, prof.crit + w.ossuary * WORK_STEP.ossuary),
+  }
 }
 
 export function mitigate(raw: number, armor: number, resist: number, fromBoss: boolean): number {

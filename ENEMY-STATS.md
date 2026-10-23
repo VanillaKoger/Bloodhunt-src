@@ -22,45 +22,45 @@ The tables below are at 0 steps (the old "level 1, no clears" row) and use the s
 
 Damage taken = max(1, raw × (1 − armor / (armor + 40))). Armor 0 is a full hit. Stats are stamped when a creature spawns or returns, so a level-up mid-fight waits for the next life.
 
-## Level 1, no clears
+## At 0 steps
 
-| Creature | Role | HP | Damage | Speed | Armor | XP | Blood | Range | Return | Cap | Cap while the king is up |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Gutter Rat | Skirmisher | 22 | 5 | 2.45 | 0 | 4 | 4 | 1.05 | 4.5s | 3 | 4 |
-| Ghoul | Bruiser | 48 | 9 | 1.35 | 4 | 6 | 6 | 1.28 | 7s | 2 | 1 |
-| Slum Wolf | Hunter | 62 | 12 | 2.05 | 6 | 8 | 7 | 1.32 | 9s | 2 | 1 |
-| Hedge Witch | Artillery | 34 | 8 | 1.45 | 2 | 7 | 6 | 4.6 | 11s | 1 | 0 |
+| Creature | Role | HP | Damage | Speed | Armor | XP | Blood | Range | Feeds | Drops |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Plague Hound | Skirmisher | 26 | 6 | 2.60 | 0 | 4 | 4 | 1.05 | Agility | 40% × 1 Bone |
+| Plague Walker | Bruiser | 70 | 11 | 1.20 | 5 | 7 | 7 | 1.3 | Vitality | 70% × 1 Bile |
+| Feral Thrall | Hunter | 58 | 13 | 2.10 | 5 | 8 | 8 | 1.3 | Strength | 50% × 2 Bile |
+| Miasma | Artillery | 34 | 8 | 1.40 | 2 | 7 | 6 | 4.6 | Sorcery | 80% × 1 Bile |
+| Skeleton | Bruiser | 48 | 9 | 1.35 | 4 | 6 | 6 | 1.28 | Strength | 100% × 2 Bone |
+| Mob Thug | Muscle | 76 | 14 | 1.58 | 5 | 9 | 8 | 1.32 | Strength | 65% × 1 Brass |
+| Enforcer | Wall | 112 | 18 | 1.28 | 8 | 12 | 11 | 1.38 | Vitality | 100% × 2 Brass |
 
-HP, damage, speed, XP, and Blood on this row match the previous alley. Armor is new. The rat's armor is 0, so a rat still takes the full hit. Ghoul armor 4 is about 9% off a hit, witch armor 2 is about 5%, and wolf armor 6 is about 13% (the wolf is the one that picks up an extra swing).
-
-The mob district stays closed. Its rows are in the same table so the gate can open later without a second formula.
-
-| Creature | Role | HP | Damage | Speed | Armor | XP | Blood | Return | Cap |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Mob Thug | Muscle | 76 | 14 | 1.58 | 5 | 9 | 8 | 8s | 3 |
-| Enforcer | Wall | 112 | 18 | 1.28 | 8 | 12 | 11 | 10s | 2 |
+The miasma is the only ranged one: it holds off at range and spits bile bolts, and backs away when the hero closes inside 2.3 m. Skeletons are the KayKit minion and stab on the clip's contact frame. Drops roll on every kill; an elite always drops, and drops double. The Haven's range dummies use the walker, thrall, and skeleton models with their armor fixed at 0, 12, and 30.
 
 ## Growth per step
 
 | Creature | HP | Damage | Speed | Speed cap | Armor step | Reward |
 | --- | --- | --- | --- | --- | --- | --- |
-| Gutter Rat | 7% | 4% | 1.2% | 3.10 | +0.40 | 6% |
-| Ghoul | 9% | 5.5% | 0.8% | 1.90 | +0.80 | 5% |
-| Slum Wolf | 8% | 6% | 1.0% | 2.70 | +0.70 | 5.5% |
-| Hedge Witch | 6% | 7% | 0.6% | 1.80 | +0.35 | 7% |
+| Plague Hound | 7% | 4% | 1.2% | 3.20 | +0.40 | 6% |
+| Plague Walker | 9% | 5.5% | 0.8% | 1.70 | +0.80 | 5% |
+| Feral Thrall | 8% | 6% | 1% | 2.80 | +0.70 | 5.5% |
+| Miasma | 6% | 7% | 0.6% | 1.80 | +0.35 | 7% |
+| Skeleton | 9% | 5.5% | 0.8% | 1.90 | +0.80 | 5% |
 | Mob Thug | 7% | 5% | 0.8% | 2.10 | +0.60 | 5% |
 | Enforcer | 8% | 5% | 0.6% | 1.70 | +0.90 | 5% |
 
-Rats stay the fragile swarm and gain speed first. Ghouls are the HP wall. Wolves hit hardest and wear the most armor. Witches stand off and scale their bolts. Reward growth is the same number for XP and Blood.
+Hounds stay the fragile pack and gain speed first. Walkers and skeletons are the HP walls. Thralls hit hardest for their size. The miasma scales its bolts. Reward growth is the same number for XP and Blood.
 
-Worked example, level 5 and 2 clears (steps = 5):
+Worked example, Danger III at the start of a Slums night (steps = 9):
 
 | Creature | HP | Damage | Speed | Armor | XP | Blood |
 | --- | --- | --- | --- | --- | --- | --- |
-| Gutter Rat | 30 | 6.00 | 2.60 | 2.0 | 5 | 5 |
-| Ghoul | 70 | 11.48 | 1.40 | 8.0 | 8 | 8 |
-| Slum Wolf | 87 | 15.60 | 2.15 | 9.5 | 10 | 9 |
-| Hedge Witch | 44 | 10.80 | 1.49 | 3.75 | 9 | 8 |
+| Plague Hound | 42 | 8.16 | 2.88 | 3.6 | 6 | 6 |
+| Plague Walker | 127 | 16.45 | 1.29 | 12.2 | 10 | 10 |
+| Feral Thrall | 100 | 20.02 | 2.29 | 11.3 | 12 | 12 |
+| Miasma | 52 | 13.04 | 1.48 | 5.15 | 11 | 10 |
+| Skeleton | 87 | 13.46 | 1.45 | 11.2 | 9 | 9 |
+| Mob Thug | 124 | 20.30 | 1.69 | 10.4 | 13 | 12 |
+| Enforcer | 193 | 26.10 | 1.35 | 16.1 | 17 | 16 |
 
 ## Rat King
 
@@ -77,22 +77,29 @@ His HP, damage, pound, speed, XP, and Blood stay on the old formula. Armor is th
 
 A clear does not raise his Blood or XP. It does add half a step to every trash kind.
 
+He is a bloated plague walker at boss size, with a crown, a cape of rags, and claws. At 60% HP he calls two plague hounds from the rim of his ring. On top of his Blood, Ichor, and Vitae he drops 10 Bile, 6 Bone, and 4 Brass. The Don drops 14 Brass and 4 Bone.
+
 ## Where they appear
 
-Nothing lands on the hero (keep 2.15 away) or inside a wall. If the nest is blocked, that creature waits and tries again. Litter rats called at 60% king HP do not take a nest, so they do not come back under his feet.
+Slums enemies come in pods at fixed spots (`PODS` in `src/game/balance.ts`). A pod wakes when the hero is within 24 m of its spot (but not closer than 5.5 m, so nothing lands on the hero), rolls one mix by weight, and stands its members around the spot. Idle members drift no more than 2.2 m off it. When one member sees the hero or takes a hit, the whole pod hunts together with a 15 m reach for 6 seconds, refreshed while any of them still sees or feels the hero. A wiped pod is gone for its "back after" time, then wakes again with a fresh roll. From Danger III a pod brings one extra of its first kind.
+
+| Pod | Spot | Back after | Mixes (weight) |
+| --- | --- | --- | --- |
+| Court rabble | (4.00, -6.40) | 30s | Plague Hound + Plague Hound + Plague Walker (3); Mob Thug + Mob Thug (2); Plague Hound + Plague Hound + Plague Hound (2) |
+| Crypt steps | (-5.40, 6.80) | 34s | Plague Walker + Plague Hound (3); Feral Thrall + Plague Hound (2); Mob Thug + Plague Walker (2); Skeleton + Skeleton (1) |
+| North pocket | (0.80, 15.91) | 28s | Plague Hound + Plague Hound (3); Feral Thrall (2) |
+| Chapel court | (-37.40, 19.40) | 40s | Plague Walker + Plague Walker + Feral Thrall (3); Mob Thug + Mob Thug + Mob Thug (2) |
+| King's yard | (-44.20, 27.20) | 40s | Feral Thrall + Plague Hound + Plague Hound (3); Miasma + Plague Walker (2); Skeleton + Plague Hound (1) |
+| South pocket | (-8.00, -24.15) | 32s | Miasma + Plague Hound (3); Mob Thug + Mob Thug (2) |
+| Bend pocket | (-20.90, -34.00) | 32s | Plague Hound + Plague Hound + Plague Hound (3); Plague Walker + Miasma (2) |
+| Bone yard | (-25.00, -47.20) | 45s | Plague Walker + Plague Walker + Miasma (3); Feral Thrall + Feral Thrall (2); Skeleton + Skeleton + Skeleton (1) |
+| Sewer mouth | (-19.60, -42.40) | 40s | Mob Thug + Mob Thug + Miasma (3); Plague Walker + Plague Hound + Plague Hound (2) |
 
 | Mark | Place | Point |
 | --- | --- | --- |
-| Rats, opening | Zone 1, the center | (2.20, −2.20), (−4.60, −1.80) |
-| Rat, fills the cap | Pocket on the alley to Zone 3 | (−20.90, −34.00) |
-| Ghoul, opening | Zone 1, by the crypt | (−2.80, 6.40) |
-| Ghoul, fills the cap | Zone 3 | (−24.60, −48.40) |
-| Ghoul, fallback | Pocket on the alley to Zone 3 | (−8.00, −24.15) |
-| Wolf, opening | Pocket on the alley to Zone 2 | (0.80, 13.60) |
-| Wolf, fills the cap | Zone 2, off the king ring | (−42.60, 25.20) |
-| Witch, opening | Zone 1, west of the barred gate | (4.80, −4.40) |
-| Witch, fallback | Zone 3 | (−26.40, −45.20) |
-| Rat King | Ring in Zone 2 | center (−40.20, 24.20), radius 1.95 |
-| Litter | Rim of that ring | (−12.05, 14.35), (−14.55, 16.35) |
+| Rat King | Ring in the chapel yard (Zone 2) | center (−40.20, 24.20), radius 1.95 |
+| Litter | Rim of that ring | (−39.10, 23.25), (−41.35, 25.05) |
 
-`?spawns=1` draws the discs, the labels, and the king ring. It is a debug view, not part of a normal fight.
+The mob district keeps its own returning thugs and enforcers on the square.
+
+`?spawns=1` draws the pod rings, their names, and the king ring. It is a debug view, not part of a normal fight.
