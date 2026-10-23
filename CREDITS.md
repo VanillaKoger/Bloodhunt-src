@@ -12,9 +12,9 @@ Author: Kay Lousberg — https://www.kaylousberg.com
 - Character Animations 1.1 (free) — Rig_Medium idle, walk, run, and the melee chop
   https://kaylousberg.itch.io/kaykit-character-animations
   License: `public/cc0/kaykit/licenses/KayKit-Character-Animations.txt`
-- Fantasy Weapons Bits 1.0 (free) — the starter weapons in the right hand: `fistweapon_A` is the claws, `dagger_A` the dagger, and a lengthened `dagger_A` the sword. The free zip also includes `dagger_B` and the swords; those files are not shipped.
+- Fantasy Weapons Bits 1.0 (free) — full FREE pack shipped under `public/cc0/kaykit/weapons/` (gltf/fbx/obj + texture + License.txt). Starter right-hand weapons still load from `public/cc0/kaykit/`: `fistweapon_A` (claws), `dagger_A` (dagger), and a lengthened `dagger_A` (sword).
   https://kaylousberg.itch.io/fantasy-weapons-bits
-  License: `public/cc0/kaykit/licenses/KayKit-Fantasy-Weapons-Bits.txt`
+  License: `public/cc0/kaykit/licenses/KayKit-Fantasy-Weapons-Bits.txt` (also `public/cc0/kaykit/weapons/License.txt`)
 - Character Pack: Skeletons 1.1 (free) — the ghoul is the Skeleton Minion
   https://kaylousberg.itch.io/kaykit-skeletons
   License: `public/cc0/kaykit/licenses/KayKit-Skeletons.txt`
