@@ -3,11 +3,14 @@ import { formatNum, type ClawTier } from './balance'
 import { paintSkill, paintSlot } from './icons'
 import type { OfflineReport, SkillId, Slot, Stat } from './types'
 import { SKILLS, SLOTS, STATS } from './types'
+import { WEAPONS, WEAPON_KINDS, type WeaponKind } from './weapons'
 
 const GEAR_ICON = `<svg class="ico" viewBox="0 0 32 32" aria-hidden="true"><path fill="currentColor" d="M16 28.4c-5.4-1.1-9.2-4.6-10-9.2L4.6 11.2C5.2 7.2 8 5.2 11.2 4.8 12.4 7.2 14 8.6 16 8.6s3.6-1.4 4.8-3.8c3.2.4 6 2.4 6.6 6.4l-1.4 8c-.8 4.6-4.6 8.1-10 9.2z"/><path fill="none" stroke="#171b26" stroke-width="1.4" stroke-linecap="round" d="M16 11.2v11"/><path fill="none" stroke="#171b26" stroke-width="1.3" stroke-linecap="round" d="M10.2 20.6h11.6"/></svg>`
 const SOUND_ON = `<svg class="ico ico-on" viewBox="0 0 32 32" aria-hidden="true"><path fill="currentColor" d="M5 12.2h5.1L16 7.4v17.2l-5.9-4.8H5z"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M20.2 12.4a5.2 5.2 0 0 1 0 7.2M23.4 9.4a9.2 9.2 0 0 1 0 13.2"/></svg>`
 const SOUND_OFF = `<svg class="ico ico-off" viewBox="0 0 32 32" aria-hidden="true"><path fill="currentColor" d="M5 12.2h5.1L16 7.4v17.2l-5.9-4.8H5z"/><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" d="M20.2 12.4 27 19.2M27 12.4l-6.8 6.8"/></svg>`
 const LOCK_ICON = `<svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="16" cy="16" r="2.2" fill="currentColor"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M16 3.5v4.2M16 24.3v4.2M3.5 16h4.2M24.3 16h4.2"/></svg>`
+
+const INSTALL_TIP = 'iPhone: Share, then Add to Home Screen. The hunt stays on this device.'
 
 const STAT_LABEL: Record<Stat, string> = {
   strength: 'Strength',
@@ -36,6 +39,7 @@ export class Hud {
   onSelectSlot: (slot: Slot) => void = () => {}
   onUpgrade = (): void => {}
   onRaise: (attr: Attr) => void = () => {}
+  onEquip: (kind: WeaponKind) => void = () => {}
   onSummon = (): void => {}
   onClaim = (): void => {}
   onMute = (): void => {}
@@ -109,6 +113,7 @@ export class Hud {
             <div id="stat-rows"></div>
             <div id="attr-rows" hidden></div>
           </div>
+          <div id="armory" hidden></div>
           <div class="upgrade-card">
             <div class="upgrade-title">GEAR UPGRADE</div>
             <div id="gear-name">Teethling Claws · Lv. 1</div>
@@ -116,7 +121,7 @@ export class Hud {
             <div id="gear-bonus">+4 Strength</div>
             <div class="cost-line" id="cost-line"><span class="drop"></span><span>Blood Cost: <b id="gear-cost">12</b></span></div>
             <button id="btn-upgrade" type="button">UPGRADE</button>
-            <p class="install-tip">iPhone: Share, then Add to Home Screen. The hunt stays on this device.</p>
+            <p class="install-tip" id="gear-note">${INSTALL_TIP}</p>
           </div>
         </div>
         <div id="offline" hidden>
@@ -199,6 +204,23 @@ export class Hud {
         this.onRaise(attr)
       })
       attrRows.appendChild(row)
+    }
+
+    const armory = parent.querySelector('#armory')!
+    for (const kind of WEAPON_KINDS) {
+      const w = WEAPONS[kind]
+      const card = document.createElement('button')
+      card.type = 'button'
+      card.className = 'item-card'
+      card.dataset.kind = kind
+      card.setAttribute('aria-label', `Equip ${w.noun}`)
+      card.innerHTML = `<canvas></canvas><small></small><b>${w.noun}</b><em>${ATTR_LABEL[w.mastery]}</em>`
+      card.addEventListener('pointerdown', (e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        this.onEquip(kind)
+      })
+      armory.appendChild(card)
     }
 
     parent.querySelector('#attr-tab')!.addEventListener('pointerdown', (e) => {
@@ -395,6 +417,33 @@ export class Hud {
     btn.textContent = maxed ? 'MAXED' : 'UPGRADE'
   }
 
+  /**
+   * Weapon item cards, shown while the weapon slot is selected. Each card
+   * carries its own item tier (`tierLabel`, `tierCss`); `equipped` is lit.
+   */
+  setArmory(show: boolean, equipped: WeaponKind, tierLabel: string, tierCss: string): void {
+    const el = this.root.querySelector('#armory') as HTMLElement
+    el.hidden = !show
+    el.style.setProperty('--tier', tierCss)
+    for (const card of el.querySelectorAll<HTMLElement>('.item-card')) {
+      const on = card.dataset.kind === equipped
+      card.classList.toggle('on', on)
+      card.setAttribute('aria-pressed', on ? 'true' : 'false')
+      card.querySelector('small')!.textContent = tierLabel
+    }
+  }
+
+  /** One still of a weapon mesh for its item card. */
+  setWeaponIcon(kind: WeaponKind, pixels: Uint8Array, size: number): void {
+    const canvas = this.root.querySelector(`.item-card[data-kind="${kind}"] canvas`) as HTMLCanvasElement | null
+    if (canvas) blit(canvas, pixels, size)
+  }
+
+  /** Line under the upgrade button: the weapon's trade-offs, or the install tip for other gear. */
+  setGearNote(text: string | null): void {
+    this.root.querySelector('#gear-note')!.textContent = text ?? INSTALL_TIP
+  }
+
   /** Rarity line under the weapon name. `weaponCss` also tints the weapon slot border. */
   setClawTier(tier: ClawTier | null, next: string, weaponCss: string): void {
     const el = this.root.querySelector('#gear-tier') as HTMLElement
@@ -465,17 +514,7 @@ export class Hud {
 
   /** One still of the hero, copied into the round portrait. It is not redrawn. */
   showPortrait(pixels: Uint8Array, size: number): void {
-    const canvas = this.root.querySelector('#portrait') as HTMLCanvasElement
-    canvas.width = size
-    canvas.height = size
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-    const image = ctx.createImageData(size, size)
-    const row = size * 4
-    for (let y = 0; y < size; y++) {
-      image.data.set(pixels.subarray((size - 1 - y) * row, (size - y) * row), y * row)
-    }
-    ctx.putImageData(image, 0, 0)
+    blit(this.root.querySelector('#portrait') as HTMLCanvasElement, pixels, size)
   }
 
   bootError(text: string): void {
@@ -587,4 +626,18 @@ export class Hud {
     this.joy.y = 0
     ;(this.root.querySelector('#joystick') as HTMLElement).hidden = true
   }
+}
+
+/** Copy WebGL render-target pixels (bottom row first) into a 2D canvas. */
+function blit(canvas: HTMLCanvasElement, pixels: Uint8Array, size: number): void {
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+  const image = ctx.createImageData(size, size)
+  const row = size * 4
+  for (let y = 0; y < size; y++) {
+    image.data.set(pixels.subarray((size - 1 - y) * row, (size - y) * row), y * row)
+  }
+  ctx.putImageData(image, 0, 0)
 }

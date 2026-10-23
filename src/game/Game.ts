@@ -17,6 +17,7 @@ import {
   enemyStats,
   formatNum,
   gearFlat,
+  CLAW_TIERS,
   clawTier,
   gearName,
   kingArmor,
@@ -45,12 +46,14 @@ import {
   createThug,
   createWitch,
   createWolf,
+  equipWeapon,
   type Rig,
 } from './models'
 import { loadSave, takeOfflineGains, writeSave } from './save'
 import { Sfx } from './sfx'
 import type { EnemyKind, SaveData, SkillId, Slot } from './types'
 import { SKILLS, STATS } from './types'
+import { STARTER_TIER, WEAPONS, WEAPON_KINDS, isWeaponKind, weaponName, weaponTraits, type WeaponKind } from './weapons'
 import type { KenneyLib } from './kenney'
 import { createStage, makeDrift, qualityLow, type Stage } from './polish'
 import { DISTRICT_OPEN, FOG_COLOR, HERO_START, MOB_ARRIVE, MOB_GATE, MOB_Z, NORTH_ALLEY_SHIFT, SLUM_GATE, SLUM_RETURN, buildWorld, inSlums, nearestSlum, setNodeVisual, type WorldHandle } from './world'
@@ -271,6 +274,7 @@ export class Game {
   private startPaused = new URLSearchParams(location.search).has('paused')
   /** Tries spent on the one-shot HUD portrait. Stays high once the still is stored. */
   private portraitTries = 0
+  private weaponIcons = false
   /** Nests, packs, and the Rat King stay in the data. They only spawn with ?enemies=1. */
   private foes = new URLSearchParams(location.search).has('enemies')
   /** Scripted walk for the environment tour. Normal play leaves this null. */
@@ -553,6 +557,7 @@ export class Game {
     this.hud.onSelectSlot = () => this.refreshMenu()
     this.hud.onUpgrade = () => this.upgrade()
     this.hud.onRaise = (attr) => this.raiseAttr(attr)
+    this.hud.onEquip = (kind) => this.equip(kind)
     this.hud.onSummon = () => this.trySummon()
     this.hud.onClaim = () => this.claimOffline()
     this.hud.onMute = () => this.toggleMute()
@@ -730,6 +735,7 @@ export class Game {
     this.updateBars(dt)
     this.updateHud()
     if (this.portraitTries < 8 && this.frames >= 1) this.snapPortrait()
+    if (!this.weaponIcons && this.frames >= 1) this.snapWeaponIcons()
     if (dt > 0) this.fps = this.fps * 0.9 + (1 / dt) * 0.1
   }
 
@@ -2014,7 +2020,7 @@ export class Game {
     const lv = this.save.gear[slot]
     const maxed = lv >= MAX_GEAR
     const cost = upgradeCost(lv)
-    this.hud.setGearCard(gearName(slot, lv), lv, GEAR_BLURB[slot](lv, this.save.evolved[slot]), cost, !maxed && this.save.blood >= cost, maxed)
+    this.hud.setGearCard(this.slotName(slot, lv), lv, GEAR_BLURB[slot](lv, this.save.evolved[slot]), cost, !maxed && this.save.blood >= cost, maxed)
     const tier = clawTier(this.save.gear.weapon)
     const next = nextClawTier(this.save.gear.weapon)
     this.hud.setClawTier(
@@ -2022,9 +2028,20 @@ export class Game {
       next ? `${next.label} at Lv. ${next.from}` : 'Highest tier',
       clawTier(this.save.gear.weapon).css,
     )
+    const starter = CLAW_TIERS.find((t) => t.id === STARTER_TIER)!
+    this.hud.setArmory(slot === 'weapon', this.save.weapon, starter.label, starter.css)
+    const w = WEAPONS[this.save.weapon]
+    const traits = weaponTraits(this.save.weapon)
+    this.hud.setGearNote(slot === 'weapon' ? `${w.blurb}${traits ? ` ${traits}.` : ''}` : null)
+  }
+
+  /** Gear name for a slot; the weapon's follows its tier and the equipped class. */
+  private slotName(slot: Slot, lv: number): string {
+    return slot === 'weapon' ? weaponName(this.save.weapon, clawTier(lv)) : gearName(slot, lv)
   }
 
   private applyWeaponLook(): void {
+    equipWeapon(this.hero.rig, this.save.weapon)
     applyGearVisual(this.hero.rig, this.save.gear.weapon, this.save.gear.cape, this.save.evolved.weapon, this.save.evolved.cape)
     const tier = clawTier(this.save.gear.weapon)
     const hue = new THREE.Color(tier.color)
@@ -2051,13 +2068,25 @@ export class Game {
     const tierUp = slot === 'weapon' && clawTier(lv + 1).id !== clawTier(lv).id
     this.applyWeaponLook()
     this.sfx.play('upgrade')
-    const name = gearName(slot, lv + 1)
+    const name = this.slotName(slot, lv + 1)
     if (tierUp) {
       const tier = clawTier(lv + 1)
-      this.hud.toast(`${tier.label} Claws awakened`)
+      this.hud.toast(`${weaponName(this.save.weapon, tier)} awakened`)
       this.burst(this.hero.x, 1.0, this.hero.z, tier.color, 18, 2.6, 0.6)
       this.shake = Math.max(this.shake, 0.22)
     } else this.hud.toast(evolvedNow ? `${name} awakened` : `${name} sharpened`)
+    this.syncVitals(profile(this.save))
+    this.persist()
+    this.refreshMenu()
+  }
+
+  private equip(kind: WeaponKind): void {
+    if (kind === this.save.weapon) return
+    this.save.weapon = kind
+    this.applyWeaponLook()
+    this.portraitTries = 0
+    this.sfx.play('upgrade')
+    this.hud.toast(`${weaponName(kind, clawTier(this.save.gear.weapon))} equipped`)
     this.syncVitals(profile(this.save))
     this.persist()
     this.refreshMenu()
@@ -2809,6 +2838,72 @@ export class Game {
     this.hud.showPortrait(pixels, size)
   }
 
+  /**
+   * Renders each weapon mesh on the hero's hand once, at the starter tier's
+   * color, into its gear-menu item card. Rigs without a weapon set skip this.
+   */
+  private snapWeaponIcons(): void {
+    this.weaponIcons = true
+    const weapons = this.hero.rig.root.userData.weapons as Record<WeaponKind, { group: THREE.Group; mat: THREE.MeshLambertMaterial }> | undefined
+    if (!weapons) return
+    const size = 128
+    const target = new THREE.WebGLRenderTarget(size, size)
+    target.texture.colorSpace = THREE.SRGBColorSpace
+    const shot = new THREE.Scene()
+    const key = new THREE.DirectionalLight(0xffe2c4, 1.6)
+    key.position.set(2, 3, 4)
+    shot.add(new THREE.HemisphereLight(0xd8ccf4, 0x3a2218, 1.6), key)
+    const tint = CLAW_TIERS.find((t) => t.id === STARTER_TIER)!.color
+    const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 20)
+    cam.position.set(0, 0, 5)
+    const prevTarget = this.renderer.getRenderTarget()
+    const clear = this.renderer.getClearColor(new THREE.Color())
+    const clearAlpha = this.renderer.getClearAlpha()
+    // Lay each posed mesh corner to corner like an inventory icon, grip low left and tip high right.
+    // The claws stand their spikes up instead. Held weapons lean toward one scale so the sword reads longer than the dagger.
+    const shots = WEAPON_KINDS.map((kind) => {
+      const model = weapons[kind].group.children[0]!.clone(true)
+      const mat = weapons[kind].mat.clone()
+      mat.color.setHex(tint)
+      mat.emissive.setHex(tint)
+      mat.emissiveIntensity = 1.1
+      model.traverse((child) => {
+        const mesh = child as THREE.Mesh
+        if (mesh.isMesh) mesh.material = mat
+      })
+      const pivot = new THREE.Group()
+      pivot.add(model)
+      if (kind === 'claws') pivot.rotation.set(0.35, 1.2, -Math.PI / 2)
+      else pivot.rotation.set(0.35, 0.25, -Math.PI / 4)
+      pivot.updateWorldMatrix(true, true)
+      const box = new THREE.Box3().setFromObject(pivot)
+      const half = (Math.max(box.max.x - box.min.x, box.max.y - box.min.y) / 2) * 1.12
+      return { kind, pivot, mat, center: box.getCenter(new THREE.Vector3()), half }
+    })
+    const held = Math.max(...shots.filter((s) => s.kind !== 'claws').map((s) => s.half))
+    for (const { kind, pivot, mat, center, half } of shots) {
+      const span = kind === 'claws' ? half : (half + held) / 2
+      cam.left = center.x - span
+      cam.right = center.x + span
+      cam.top = center.y + span
+      cam.bottom = center.y - span
+      cam.updateProjectionMatrix()
+      shot.add(pivot)
+      this.renderer.setRenderTarget(target)
+      this.renderer.setClearColor(0x000000, 0)
+      this.renderer.clear()
+      this.renderer.render(shot, cam)
+      const pixels = new Uint8Array(size * size * 4)
+      this.renderer.readRenderTargetPixels(target, 0, 0, size, size, pixels)
+      this.hud.setWeaponIcon(kind, pixels, size)
+      shot.remove(pivot)
+      mat.dispose()
+    }
+    this.renderer.setRenderTarget(prevTarget)
+    this.renderer.setClearColor(clear, clearAlpha)
+    target.dispose()
+  }
+
   private faceHeroToCamera(dt: number): void {
     // The rig's face points opposite the movement yaw, so that yaw aims
     // away from the lens and the gear screen shows a front profile.
@@ -2973,6 +3068,7 @@ export class Game {
         stacks: { ...this.save.stacks },
         gear: { ...this.save.gear },
         evolved: { ...this.save.evolved },
+        weapon: this.save.weapon,
         level: this.save.level,
         xp: this.save.xp,
         bossKills: this.save.bossKills,
@@ -3067,6 +3163,9 @@ export class Game {
       }),
       summon: () => {
         this.summonKing(true)
+      },
+      equip: (kind: WeaponKind) => {
+        if (isWeaponKind(kind)) this.equip(kind)
       },
       /** Quick test hook: set an attribute's spent points directly, ignoring the point budget. */
       setAttr: (attr: Attr, value: number) => {

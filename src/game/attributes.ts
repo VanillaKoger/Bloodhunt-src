@@ -1,5 +1,6 @@
 import type { CombatProfile } from './balance'
 import type { SaveData } from './types'
+import { WEAPONS } from './weapons'
 
 /**
  * Player attributes. Each is a flat number the player raises with points
@@ -68,9 +69,9 @@ export function zeroAttrs(): Record<Attr, number> {
   return Object.fromEntries(ATTRS.map((a) => [a, 0])) as Record<Attr, number>
 }
 
-/** Every weapon in the game is a claw for now. Blade and blunt wait for their gear. */
-export function weaponType(_save: SaveData): WeaponType {
-  return 'claws'
+/** The mastery the equipped weapon trains: claws, blade (dagger, sword), or blunt (mace). */
+export function weaponType(save: SaveData): WeaponType {
+  return WEAPONS[save.weapon].mastery
 }
 
 export function attrPointsLeft(save: SaveData): number {

@@ -2,6 +2,7 @@ import { applyAttributes } from './attributes'
 import type { EnemyKind, SaveData, SkillId, Slot, Stat } from './types'
 import { NORTH_ALLEY_SHIFT } from './world'
 import { SLOTS } from './types'
+import { WEAPONS } from './weapons'
 
 export const BASE_STAT: Record<Stat, number> = {
   strength: 8,
@@ -405,10 +406,11 @@ export function profile(save: SaveData): CombatProfile {
   const vit = combatStat(save, 'vitality')
   const fort = combatStat(save, 'fortitude')
   const res = combatStat(save, 'resistance')
+  const w = WEAPONS[save.weapon]
   return applyAttributes({
-    dmg: 10 + str * 0.55 + save.gear.weapon * 1.35,
-    crit: Math.min(0.45, 0.05 + agi * 0.0035),
-    interval: Math.max(0.28, 0.52 - agi * 0.003 - save.gear.boots * 0.012),
+    dmg: (10 + str * 0.55 + save.gear.weapon * 1.35) * w.dmg,
+    crit: Math.min(0.45, 0.05 + agi * 0.0035 + w.crit),
+    interval: Math.max(0.28, 0.52 - agi * 0.003 - save.gear.boots * 0.012) * w.interval,
     speed: 3.2 + agi * 0.018 + save.gear.boots * 0.055,
     hp: 96 + vit * 2.3 + save.gear.coat * 5,
     armor: fort * 0.45 + save.gear.coat * 1.15,

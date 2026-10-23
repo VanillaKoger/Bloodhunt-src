@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
 import { CLAW_TIERS, clawTier, nextClawTier, type ClawTierId } from './balance'
+import type { WeaponKind } from './weapons'
 
 export interface KenneyAnimState {
   dt: number
@@ -785,6 +786,20 @@ function applyClawTier(rig: Rig, weaponLv: number): void {
   const mats = rig.root.userData.clawMats as Partial<Record<ClawTierId, THREE.MeshLambertMaterial>> | undefined
   if (mats?.[tier.id]) rig.mats.claw = mats[tier.id]
   rig.root.userData.clawTier = tier.id
+}
+
+/**
+ * Show the equipped weapon's mesh on a KayKit hero and point `claws` and
+ * `mats.claw` at it, so the tier tint, trail tip, and hit flash follow.
+ * Rigs without a weapon set (enemies, the procedural fallback hero) are left alone.
+ */
+export function equipWeapon(rig: Rig, kind: WeaponKind): void {
+  const weapons = rig.root.userData.weapons as Record<WeaponKind, { group: THREE.Group; mat: THREE.MeshLambertMaterial }> | undefined
+  if (!weapons) return
+  for (const [id, w] of Object.entries(weapons)) w.group.visible = id === kind
+  rig.claws.length = 0
+  rig.claws.push(weapons[kind].group)
+  rig.mats.claw = weapons[kind].mat
 }
 
 export function applyGearVisual(rig: Rig, weaponLv: number, capeLv: number, evolvedWeapon: boolean, evolvedCape: boolean): void {
