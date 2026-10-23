@@ -1,3 +1,4 @@
+import { applyAttributes } from './attributes'
 import type { EnemyKind, SaveData, SkillId, Slot, Stat } from './types'
 import { NORTH_ALLEY_SHIFT } from './world'
 import { SLOTS } from './types'
@@ -391,6 +392,10 @@ export interface CombatProfile {
   lifesteal: number
   regen: number
   cdScale: number
+  /** Blood multiplier on kills (Hunger). */
+  bloodMult: number
+  /** Damage-taken multiplier after armor (Shade). */
+  guard: number
 }
 
 export function profile(save: SaveData): CombatProfile {
@@ -400,7 +405,7 @@ export function profile(save: SaveData): CombatProfile {
   const vit = combatStat(save, 'vitality')
   const fort = combatStat(save, 'fortitude')
   const res = combatStat(save, 'resistance')
-  return {
+  return applyAttributes({
     dmg: 10 + str * 0.55 + save.gear.weapon * 1.35,
     crit: Math.min(0.45, 0.05 + agi * 0.0035),
     interval: Math.max(0.28, 0.52 - agi * 0.003 - save.gear.boots * 0.012),
@@ -412,7 +417,9 @@ export function profile(save: SaveData): CombatProfile {
     lifesteal: Math.min(0.2, 0.03 + vit * 0.0011),
     regen: 1.1 + vit * 0.035,
     cdScale: 1 - Math.min(0.28, sor * 0.0014),
-  }
+    bloodMult: 1,
+    guard: 1,
+  }, save)
 }
 
 export function mitigate(raw: number, armor: number, resist: number, fromBoss: boolean): number {

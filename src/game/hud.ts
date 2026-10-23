@@ -1,3 +1,4 @@
+import { ATTRS, ATTR_LABEL, attrEffect, type Attr, type AttrStats, type WeaponType } from './attributes'
 import { formatNum, type ClawTier } from './balance'
 import { paintSkill, paintSlot } from './icons'
 import type { OfflineReport, SkillId, Slot, Stat } from './types'
@@ -34,6 +35,7 @@ export class Hud {
   onCloseMenu = (): void => {}
   onSelectSlot: (slot: Slot) => void = () => {}
   onUpgrade = (): void => {}
+  onRaise: (attr: Attr) => void = () => {}
   onSummon = (): void => {}
   onClaim = (): void => {}
   onMute = (): void => {}
@@ -49,6 +51,7 @@ export class Hud {
   private skillSweeps: Record<SkillId, HTMLElement>
   private skillBtns: Record<SkillId, HTMLButtonElement>
   private nodeTags: Record<'crypt' | 'fountain', HTMLElement>
+  private attrsOpen = false
 
   constructor(parent: HTMLElement) {
     parent.innerHTML = `
@@ -102,8 +105,9 @@ export class Hud {
           <button class="slot" id="slot-coat" type="button"><canvas></canvas><span>COAT</span></button>
           <button class="slot" id="slot-boots" type="button"><canvas></canvas><span>BOOTS</span></button>
           <div class="sheet">
-            <div class="sheet-head"><span id="feeds">Feeds 0</span><span id="trophy" hidden>Crown of the Rat King</span></div>
+            <div class="sheet-head"><span id="feeds">Feeds 0</span><span id="trophy" hidden>Crown of the Rat King</span><button id="attr-tab" type="button">Attributes · 0</button></div>
             <div id="stat-rows"></div>
+            <div id="attr-rows" hidden></div>
           </div>
           <div class="upgrade-card">
             <div class="upgrade-title">GEAR UPGRADE</div>
@@ -182,6 +186,28 @@ export class Hud {
       row.innerHTML = `<span>${STAT_LABEL[stat]}</span><div class="bar"><div></div></div><b>0</b>`
       rows.appendChild(row)
     }
+
+    const attrRows = parent.querySelector('#attr-rows')!
+    for (const attr of ATTRS) {
+      const row = document.createElement('div')
+      row.className = 'attr-row'
+      row.dataset.attr = attr
+      row.innerHTML = `<span>${ATTR_LABEL[attr]} <b>0</b></span><em></em><button type="button" aria-label="Raise ${ATTR_LABEL[attr]}">+</button>`
+      row.querySelector('button')!.addEventListener('pointerdown', (e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        this.onRaise(attr)
+      })
+      attrRows.appendChild(row)
+    }
+
+    parent.querySelector('#attr-tab')!.addEventListener('pointerdown', (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      this.attrsOpen = !this.attrsOpen
+      ;(parent.querySelector('#stat-rows') as HTMLElement).hidden = this.attrsOpen
+      ;(parent.querySelector('#attr-rows') as HTMLElement).hidden = !this.attrsOpen
+    })
 
     parent.querySelector('#btn-gear')!.addEventListener('pointerdown', (e) => {
       e.preventDefault()
@@ -337,6 +363,19 @@ export class Hud {
       const el = this.root.querySelector(`.stat-row[data-stat="${row.stat}"]`)!
       ;(el.querySelector('b') as HTMLElement).textContent = formatNum(row.value)
       ;(el.querySelector('.bar > div') as HTMLElement).style.width = `${Math.max(0, Math.min(1, row.fill)) * 100}%`
+    }
+  }
+
+  /** Only the mastery for the equipped weapon type is shown; the others do nothing until that gear exists. */
+  setAttrs(fx: AttrStats, weapon: WeaponType, points: number): void {
+    this.root.querySelector('#attr-tab')!.textContent = this.attrsOpen ? 'Stats' : `Attributes · ${points}`
+    for (const attr of ATTRS) {
+      const el = this.root.querySelector(`.attr-row[data-attr="${attr}"]`) as HTMLElement
+      const mastery = attr === 'blade' || attr === 'blunt' || attr === 'claws'
+      el.hidden = mastery && attr !== weapon
+      el.querySelector('b')!.textContent = String(fx.level[attr])
+      el.querySelector('em')!.textContent = attrEffect(attr, fx)
+      ;(el.querySelector('button') as HTMLButtonElement).disabled = points <= 0
     }
   }
 
