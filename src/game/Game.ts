@@ -64,6 +64,16 @@ import type { KenneyLib } from './kenney'
 import { createStage, makeDrift, qualityLow, type Stage } from './polish'
 import { DISTRICT_OPEN, FOG_COLOR, HERO_START, MOB_ARRIVE, MOB_GATE, MOB_Z, NORTH_ALLEY_SHIFT, SLUM_GATE, SLUM_RETURN, buildWorld, inSlums, nearestSlum, setNodeVisual, type WorldHandle } from './world'
 
+/**
+ * Root yaw for the hero's `facing`. Hero facing is kept so the body looks
+ * along (sin θ, −cos θ) (see `yawAlong`), while the model looks down its own
+ * +Z, so the root turns by π − θ. Written whole every frame, so no stray
+ * Euler x/z (e.g. a quaternion read back past 90°) can flip the turn.
+ */
+function heroYaw(facing: number): number {
+  return Math.PI - facing
+}
+
 interface Actor {
   id: number
   kind: 'hero' | EnemyKind
@@ -868,7 +878,7 @@ export class Game {
     }
     this.animateActor(hero, dt)
     hero.rig.root.position.set(hero.x, 0, hero.z)
-    hero.rig.root.rotation.y = hero.facing
+    hero.rig.root.rotation.set(0, heroYaw(hero.facing), 0)
     this.sampleTrail()
     this.touchGate()
   }
@@ -2611,7 +2621,8 @@ export class Game {
 
   private placeActor(actor: Actor): void {
     actor.rig.root.position.set(actor.x, 0, actor.z)
-    actor.rig.root.rotation.y = actor.facing
+    if (actor.kind === 'hero') actor.rig.root.rotation.set(0, heroYaw(actor.facing), 0)
+    else actor.rig.root.rotation.y = actor.facing
     this.parkContact(actor)
   }
 
@@ -2825,7 +2836,8 @@ export class Game {
     const root = this.hero.rig.root
     const parent = root.parent
     const pos = root.position.clone()
-    const quat = root.quaternion.clone()
+    // Restore the Euler as it was: a quaternion read back past 90° of yaw comes out as (π, π − yaw, π).
+    const rot = root.rotation.clone()
     const shown = root.visible
     const hidden: THREE.Object3D[] = []
     root.traverse((obj) => {
@@ -2904,7 +2916,7 @@ export class Game {
 
     if (parent) parent.add(root)
     root.position.copy(pos)
-    root.quaternion.copy(quat)
+    root.rotation.copy(rot)
     root.visible = shown
     for (const mesh of hidden) mesh.visible = true
     root.updateWorldMatrix(true, true)
@@ -2940,7 +2952,7 @@ export class Game {
     const clear = this.renderer.getClearColor(new THREE.Color())
     const clearAlpha = this.renderer.getClearAlpha()
     // Lay each posed mesh corner to corner like an inventory icon, grip low left and tip high right.
-    // The claws stand their spikes up instead. Held weapons lean toward one scale so the sword reads longer than the dagger.
+    // The claws look through the knuckle loops, spikes and blades up. Held weapons lean toward one scale so the sword reads longer than the dagger.
     const shots = WEAPON_KINDS.map((kind) => {
       const piece = all[kind][tier.id]
       const model = piece.group.children[0]!.clone(true)
@@ -2952,7 +2964,8 @@ export class Game {
       })
       const pivot = new THREE.Group()
       pivot.add(model)
-      if (kind === 'claws') pivot.rotation.set(0.35, 1.2, -Math.PI / 2)
+      // Slot +X (out of the knuckles) turns to screen up; the finger loops face the lens.
+      if (kind === 'claws') pivot.rotation.set(-0.4, 0, Math.PI / 2)
       else pivot.rotation.set(0.35, 0.25, -Math.PI / 4)
       pivot.updateWorldMatrix(true, true)
       const box = new THREE.Box3().setFromObject(pivot)

@@ -493,13 +493,42 @@ const TIER_GLOW: Record<ClawTierId, number> = {
 
 type V3 = [number, number, number]
 
-/** One mesh of a tier's weapon, posed in the right-hand slot. The slot's +Y is the character's forward. */
+/**
+ * One mesh of a tier's weapon, posed in the right-hand slot. In slot space
+ * +X points out of the knuckles (the punch), Y runs across the fingers (the
+ * way a hilt passes through the fist, so a held blade points along +Y), and
+ * the origin sits inside the curled fingers.
+ */
 interface WeaponPart {
   /** A glTF stem in the Fantasy Weapons Bits pack, or `bone_A` from Halloween Bits. */
   file: string
   pos?: V3
   rot?: V3
   scale: number | V3
+}
+
+/**
+ * The pack's fist weapons are authored striking face along −X, grip along Z,
+ * finger holes along Y. This turn puts the striking face out of the knuckles,
+ * the grip across the fingers, and the finger holes along the fingers. (The
+ * `_stacked` fist models are display piles of two, not something to wear.)
+ */
+const FIST_TURN: V3 = [-Math.PI / 2, 0, Math.PI]
+
+/**
+ * fistweapon_A worn as brass knuckles: the back bar sunk in the palm where a
+ * hilt would sit, the band around the fingers, and the spiked bar flush on
+ * the knuckle face. Slightly deepened so it covers the knuckle row.
+ */
+const KNUCKLES: WeaponPart = { file: 'fistweapon_A', pos: [-0.05, 0, 0.05], rot: FIST_TURN, scale: [1, 1.3, 1] }
+
+/**
+ * fistweapon_B's three blades, its grip hidden in the palm so they come out
+ * between the knuckles. `tilt` splays the set about the punch axis; `scale`
+ * is the pack mesh's (length, curve, spread).
+ */
+function clawBlades(tilt: number, z: number, scale: V3): WeaponPart {
+  return { file: 'fistweapon_B', pos: [0, 0, z], rot: [FIST_TURN[0] + tilt, 0, Math.PI], scale }
 }
 
 /**
@@ -510,17 +539,16 @@ interface WeaponPart {
  * a basket-hilt main-gauche, a dirk), so they never read as small swords.
  */
 const TIER_MODELS: Record<WeaponKind, Record<ClawTierId, WeaponPart[]>> = {
+  // Every tier wears the same knuckle duster around the fist; the tiers above
+  // add claw blades growing out between the knuckles.
   claws: {
-    // Spiked knuckle ring, scaled up so the spikes clear the mage's mitten.
-    teethling: [{ file: 'fistweapon_A', pos: [-0.03, 0, 0], scale: [1.9, 1.65, 1.65] }],
-    kindred: [{ file: 'fistweapon_A_stacked', pos: [-0.02, 0, 0], scale: [1.35, 1.3, 1.3] }],
-    awakened: [{ file: 'fistweapon_B', scale: 1.25 }],
-    ascendent: [{ file: 'fistweapon_B_stacked', scale: 1.05 }],
-    // Two triple-claw sets fanned against each other: six hooked blades.
-    immortal: [
-      { file: 'fistweapon_B_stacked', rot: [0, 0, 0.14], scale: 1.12 },
-      { file: 'fistweapon_B_stacked', pos: [0, 0.04, 0], rot: [0, 0, -0.2], scale: [1.2, 1.12, 0.9] },
-    ],
+    teethling: [KNUCKLES],
+    kindred: [KNUCKLES, clawBlades(0, 0.05, [0.42, 0.8, 0.7])],
+    awakened: [KNUCKLES, clawBlades(0, 0.05, [1, 1.1, 0.7])],
+    // Long claws, with a row of short fangs splayed under them.
+    ascendent: [KNUCKLES, clawBlades(0, 0.05, [1.3, 1.15, 0.75]), clawBlades(-0.45, 0.03, [0.5, 0.85, 0.66])],
+    // Two long sets splayed above and below the knuckles: six blades.
+    immortal: [KNUCKLES, clawBlades(0.35, 0.07, [1.4, 1.15, 0.75]), clawBlades(-0.35, 0.03, [1.25, 1.1, 0.72])],
   },
   dagger: {
     teethling: [{ file: 'dagger_A', scale: 1 }],
