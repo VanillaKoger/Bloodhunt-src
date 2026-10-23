@@ -3,3 +3,5 @@ dist
 .DS_Store
 *.local
 .vite
+# Throwaway headless test scripts, kept out of auto-save commits
+scripts/_*.mjs
