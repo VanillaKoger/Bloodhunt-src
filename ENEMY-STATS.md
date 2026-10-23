@@ -28,7 +28,21 @@ Damage taken = max(1, raw × (1 − armor / (armor + 40))). Armor 0 is a full hi
 | Mob Thug | Muscle | 76 | 14 | 1.58 | 5 | 9 | 8 | 1.32 | Strength | 65% × 1 Brass |
 | Enforcer | Wall | 112 | 18 | 1.28 | 8 | 12 | 11 | 1.38 | Vitality | 100% × 2 Brass |
 
-The miasma is the only ranged one: it holds off at range and spits bile bolts, and backs away when the hero closes inside 2.3 m. Skeletons are the KayKit minion and stab on the clip's contact frame. Drops roll on every kill; an elite always drops, and drops double. The Haven's range dummies use the walker, thrall, and skeleton models with their armor fixed at 0, 12, and 30.
+Each kind also has one ability, and every attack winds up behind a ground marker (gold for a plain swing, red for an ability). The abilities, poise, staggers, and Feeds are in the README's Combat section and `src/game/combat.ts`.
+
+| Creature | Ability | Wind-up | Cooldown | Hit | Poise (share of HP to stagger) |
+| --- | --- | --- | --- | --- | --- |
+| Plague Hound | Flank Lunge | 0.62 s | 5.5 s | ×1.4 | 60% |
+| Plague Walker | Bile Retch (+ pool, ×0.32 a half second) | 0.85 s | 7 s | ×1.2 | 50% |
+| Feral Thrall | Pounce, then winded 1.1 s | 0.66 s | 6.5 s | ×1.45 | 45% |
+| Miasma | Acid Lob (+ pool, ×0.28 a half second) | 0.95 s | 6.5 s | ×1.5 | 50% |
+| Skeleton | Reassemble at 50% HP unless the pile is struck within 3.2 s | — | once | — | 50% |
+| Mob Thug | Haymaker Charge, then dazed 1.2 s | 0.78 s | 7.5 s | ×1.6 | 45% |
+| Enforcer | Bulwark: 75% off hits to his front | — | always | — | 55% |
+
+Plain swings wind up for 0.36 s (hound) to 0.7 s (enforcer). The poise share is for the claws; the weapon's poise scales it (dagger 0.8, claws 1, sword 1.1, mace 1.7).
+
+The miasma is the only ranged one: it holds off at range and spits bile bolts down a gold lane, and backs away when the hero closes inside 2.3 m. Skeletons are the KayKit minion and stab on the clip's contact frame. Drops roll on every kill; an elite always drops, and drops double. The Haven's range dummies use the walker, thrall, and skeleton models with their armor fixed at 0, 12, and 30.
 
 ## Growth per step
 
@@ -71,11 +85,11 @@ n = his falls so far, counted up to 20. On top of these, the night's steps, bite
 
 The heavier sheet (680 + Strength × 6.2 HP, 14 damage, 20 pound) is used by the Countess, the Inquisitor, and the Elder. Every other boss uses the Rat King's.
 
-He is a bloated plague walker at boss size, with a crown, a cape of rags, and claws. At 60% HP he calls two plague hounds from the rim of his ring. On top of his Blood, Ichor, and Vitae he drops 10 Bile, 6 Bone, and 4 Brass (times the danger's material multiplier). The Don drops 14 Brass and 4 Bone.
+He is a bloated plague walker at boss size, with a crown, a cape of rags, and claws. He swings behind a gold marker and pounds the ground in a red ring every 4.6 s. At 60% HP he calls two plague hounds from the rim of his ring and starts leaping for the hero's flank; at 30% he is enraged (20% faster, 28% shorter cooldowns, and the pound lands three times in a row). Each stagger needs 60% more poise than the last. On top of his Blood, Ichor, and Vitae he drops 10 Bile, 6 Bone, and 4 Brass (times the danger's material multiplier). The Don drops 14 Brass and 4 Bone.
 
 ## Where they appear
 
-Enemies come in pods at fixed spots in each zone (`pods` on each zone in `src/game/maps.ts`). A pod wakes when the hero is within 24 m of its spot (but not closer than 5.5 m, so nothing lands on the hero), rolls one mix by weight, and stands its members around the spot. Idle members drift no more than 2.2 m off it. When one member sees the hero or takes a hit, the whole pod hunts together with a 15 m reach for 6 seconds, refreshed while any of them still sees or feels the hero. A wiped pod is gone for its respawn time, then wakes again with a fresh roll. From tier 10 a pod brings one extra of its lead, and from tier 20 two.
+Enemies come in pods at fixed spots in each zone (`pods` on each zone in `src/game/maps.ts`). A pod wakes when the hero is within 24 m of its spot (but not closer than 5.5 m, so nothing lands on the hero), rolls one mix by weight, and stands its members around the spot. Idle members drift no more than 2.2 m off it. When one member sees the hero or takes a hit, the whole pod hunts together with a 15 m reach for 6 seconds, refreshed while any of them still sees or feels the hero. A wiped pod is gone for its respawn time, then wakes again with a fresh roll. From tier 11 a pod brings one extra of its lead, and from tier 21 two.
 
 The Slums' pods are hand-placed in its three courts. The placeholder zones place five pods from the room layout, clear of the start, the way out, and the boss ring, and roll their mixes from the map's roster (a pack animal, a brute, a hunter, and one that stands off).
 
@@ -84,6 +98,6 @@ The Slums' pods are hand-placed in its three courts. The placeholder zones place
 | Rat King | Ring in the chapel yard (Zone 3) | center (−40.20, 24.20), radius 1.95 |
 | Litter | Rim of that ring | (−39.10, 23.25), (−41.35, 25.05) |
 
-Every other boss is called out at the ring in its map's last zone. At 60% HP it calls two of the zone's own to its side.
+Every other boss is called out at the ring in its map's last zone. At 60% HP it calls two of the zone's own to its side and starts its own move (the README lists them); at 30% it is enraged like the king.
 
 `?spawns=1` draws the Slums' pod rings, their names, and the king ring. It is a debug view, not part of a normal fight.

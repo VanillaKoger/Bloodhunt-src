@@ -47,8 +47,8 @@ export interface WeaponDef {
   reach: number
   /** Smallest facing dot a target can sit at and still be hit. Lower is a wider arc. */
   arc: number
-  /** Knockback next to the claws. */
-  knock: number
+  /** Poise damage next to the claws: how fast it staggers. Hits never push. */
+  poise: number
   /** How far the body leans into the strike, next to the dagger's stab. */
   lunge: number
 }
@@ -66,7 +66,7 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     swings: [{ clip: 'Melee_Unarmed_Attack_Punch_A', contact: 0.46, ready: 0.88 }],
     reach: 0,
     arc: 0.15,
-    knock: 1,
+    poise: 1,
     lunge: 0.7,
   },
   dagger: {
@@ -81,7 +81,7 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     swings: [{ clip: 'Melee_1H_Attack_Stab', contact: 0.42, ready: 0.78 }],
     reach: 0.1,
     arc: 0.45,
-    knock: 0.7,
+    poise: 0.8,
     lunge: 1,
   },
   sword: {
@@ -99,7 +99,7 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     ],
     reach: 0.3,
     arc: -0.1,
-    knock: 1,
+    poise: 1.1,
     lunge: 0.55,
   },
   mace: {
@@ -114,7 +114,7 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     swings: [{ clip: 'Melee_1H_Attack_Chop', contact: 0.6, ready: 0.95 }],
     reach: 0.15,
     arc: 0.2,
-    knock: 1.6,
+    poise: 1.7,
     lunge: 0.45,
   },
 }
@@ -144,7 +144,7 @@ export function weaponTraits(kind: WeaponKind): string {
   if (Math.abs(pace - 1) >= 0.01) out.push(`${pct(pace - 1)}% ${pace < 1 ? 'faster' : 'slower'}`)
   if (w.crit > 0) out.push(`+${pct(w.crit)}% crit`)
   if (w.arc < 0) out.push('wide arc')
-  if (w.knock > 1) out.push('heavy knockback')
+  if (w.poise > 1.3) out.push('staggers fast')
   return out.join(' · ')
 }
 

@@ -70,6 +70,7 @@ import { WORKS, WORK_IDS, canAfford, workCost } from '../src/game/haven'
 import { freshSave } from '../src/game/save'
 import { attrPointsLeft } from '../src/game/attributes'
 import { SKILLS, type SaveData, type Stat } from '../src/game/types'
+import { ATTACK_TOKENS, FOE_COMBAT, SIG, STAGGER } from '../src/game/combat'
 
 const NIGHTS_PER_DAY = Number(process.argv[2] ?? 4.5)
 const SEEDS = 5
@@ -117,6 +118,13 @@ const WALK = 2.6
 const KILL_CAP = 85
 /** Share of the night spent hunting rather than walking out. */
 const HUNT_SHARE = 0.82
+/** Share of the hero's damage that lands on stunned (exposed) enemies. */
+const STUN_SHARE = 0.3
+/** Plain attacks a hunter eats rather than steps out of, and red abilities the same. */
+const SWING_HIT = 0.8
+const ABILITY_HIT = 0.35
+/** Share of kills made on a stunned enemy: each one feeds. */
+const FEED_SHARE = 0.45
 
 interface Fight {
   kills: number
@@ -132,6 +140,7 @@ function avgFoe(district: DistrictId, zone: number, steps: number) {
   let hp = 0
   let dmg = 0
   let cd = 0
+  let sig = 0
   let armor = 0
   let xp = 0
   let blood = 0
@@ -139,12 +148,25 @@ function avgFoe(district: DistrictId, zone: number, steps: number) {
     const s = enemyStats(k, steps, nightBite(district, zone), nightTough(district, zone))
     hp += s.hp * w
     dmg += s.dmg * w
-    cd += ENEMIES[k].cd * w
+    // A plain attack cycle is its wind-up and its cooldown.
+    cd += (ENEMIES[k].cd + FOE_COMBAT[k].windup) * w
+    sig += sigRate(k) * s.dmg * w
     armor += s.armor * w
     xp += s.xp * w
     blood += s.blood * w
   }
-  return { hp, dmg, cd, armor, xp, blood }
+  return { hp, dmg, cd, armor, xp, blood, sig }
+}
+
+/** Ability damage a second, as a multiple of the enemy's plain hit, if every one landed. */
+function sigRate(k: Foe): number {
+  const sig = FOE_COMBAT[k].sig
+  if (sig === 'lunge') return SIG.lunge.dmg / SIG.lunge.cd
+  if (sig === 'retch') return (SIG.retch.dmg + SIG.retch.pool.dmg * 2) / SIG.retch.cd
+  if (sig === 'pounce') return SIG.pounce.dmg / SIG.pounce.cd
+  if (sig === 'lob') return (SIG.lob.dmg + SIG.lob.pool.dmg * 2) / SIG.lob.cd
+  if (sig === 'charge') return SIG.charge.dmg / SIG.charge.cd
+  return 0
 }
 
 function heroDps(save: SaveData, armor: number) {
@@ -165,14 +187,23 @@ function fight(save: SaveData, district: DistrictId, zone: number): Fight {
   const length = nightLength(save.rites.night)
   const steps = nightSteps(district, zone, length * 0.45)
   const foe = avgFoe(district, zone, steps)
-  const { prof, melee, total } = heroDps(save, foe.armor)
+  const { prof, melee, total: raw } = heroDps(save, foe.armor)
+  // Some of the damage lands on staggered enemies, which take more.
+  const total = raw * (1 + (STAGGER.exposed - 1) * STUN_SHARE)
   const ttk = (foe.hp * (1 + eliteChance(district, zone, save.rites.scent) * (ELITE.hp - 1))) / total
   const kills = Math.min(KILL_CAP, (length * HUNT_SHARE) / (ttk + WALK))
-  const clear = POD_SIZE * ttk
-  const incoming = (mitigate(foe.dmg, prof.armor, prof.resist, false) * prof.guard) / foe.cd
-  const engaged = 1.7
-  const taken = incoming * engaged * clear * 0.75
-  const healed = prof.lifesteal * melee * clear + prof.regen * clear
+  const tier = tierIndex(district, zone)
+  const pod = POD_SIZE + Math.floor(tier / 10)
+  const clear = pod * ttk
+  // Armor's share, read off the zone's average hit (mitigate floors a hit at 1).
+  const hit = (mitigate(foe.dmg, prof.armor, prof.resist, false) * prof.guard) / Math.max(1e-6, foe.dmg)
+  // Only a few swing at once; the rest circle and still throw their abilities.
+  const engaged = Math.min(ATTACK_TOKENS, pod) * 0.8
+  const swings = (foe.dmg * hit * SWING_HIT) / foe.cd
+  const abilities = foe.sig * hit * ABILITY_HIT
+  const taken = (swings * engaged + abilities * pod * 0.6) * clear
+  // Regen waits for a breather, so inside a pod only lifesteal and feeding heal.
+  const healed = prof.lifesteal * melee * clear + pod * FEED_SHARE * STAGGER.feedHeal * prof.hp
   const podLoss = Math.max(0, taken - healed) / prof.hp
   const pFall = Math.max(0.02, Math.min(0.97, (podLoss - 0.3) * 1.1))
   return { kills, ttk, podLoss, pFall, dps: total, steps }

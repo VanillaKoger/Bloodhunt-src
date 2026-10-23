@@ -972,7 +972,33 @@ export class Hud {
     const el = document.createElement('div')
     const boss = kind === 'boss' || kind === 'don'
     el.className = boss ? 'ebar boss' : `ebar ${kind}`
-    el.innerHTML = '<i class="lag"></i><i class="fill"></i><b class="hp"></b>'
+    el.innerHTML = '<i class="lag"></i><i class="fill"></i><i class="poise"></i><b class="hp"></b>'
+    this.barLayer.appendChild(el)
+    return el
+  }
+
+  private threats: HTMLDivElement[] = []
+
+  /** Red marks at the screen's edge, pointing at abilities winding up out of view. `a` is the screen angle. */
+  setThreats(list: { x: number; y: number; a: number }[]): void {
+    while (this.threats.length < list.length) {
+      const el = document.createElement('div')
+      el.className = 'threat'
+      this.barLayer.appendChild(el)
+      this.threats.push(el)
+    }
+    this.threats.forEach((el, i) => {
+      const t = list[i]
+      el.style.display = t ? 'block' : 'none'
+      if (t) el.style.transform = `translate(${t.x}px, ${t.y}px) rotate(${t.a}rad)`
+    })
+  }
+
+  /** An elite's modifier names, hung over its bar. */
+  makeTag(): HTMLDivElement {
+    const el = document.createElement('div')
+    el.className = 'etag'
+    el.style.display = 'none'
     this.barLayer.appendChild(el)
     return el
   }

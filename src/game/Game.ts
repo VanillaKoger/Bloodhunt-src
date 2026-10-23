@@ -129,6 +129,28 @@ import { buildYard, type YardHandle } from './yard'
 import { buildMapArt, type MapArtHandle } from './mapart'
 import { MAPS, MAP_IDS, ZONE_COUNT, inZone, nearestInZone, type MapDef, type PodDef, type ZoneDef } from './maps'
 import {
+  AFFIX,
+  AFFIXES,
+  ATTACK_TOKENS,
+  BOSS_COMBAT,
+  BOSS_PHASE,
+  BOSS_SIG,
+  BOSS_SIG_LABEL,
+  BOSS_SIGS,
+  FOE_COMBAT,
+  HERO_GUARD,
+  ORBIT,
+  SIG,
+  SKILL_POISE,
+  STAGGER,
+  rollAffixes,
+  sigGap,
+  sigSlots,
+  type Affix,
+  type FoeCombat,
+} from './combat'
+import { Telegraphs, type Tele } from './telegraph'
+import {
   MARKS,
   SWIFT_SECONDS,
   districtGate,
@@ -177,9 +199,6 @@ interface Actor {
   struck: boolean
   hitFlash: number
   flinch: number
-  knockT: number
-  kx: number
-  kz: number
   dead: boolean
   deathT: number
   respawn: number
@@ -198,12 +217,10 @@ interface Actor {
   barT: number
   barFlash: number
   bar: HTMLDivElement
-  pending: { t: number; dmg: number; boss: boolean } | null
-  poundT: number
+  /** Bosses: seconds until the next pound. */
   poundCd: number
-  poundX: number
-  poundZ: number
-  added: boolean
+  /** Bosses: 0 at first, 1 once it calls help and starts its own move, 2 enraged. */
+  phase: number
   intro: number
   wanderT: number
   wanderA: number
@@ -212,7 +229,134 @@ interface Actor {
   dummy: boolean
   /** Rolled at spawn during a night: tougher, bigger, pays triple Blood and drops Ichor. */
   elite: boolean
+  /** Elite modifiers (combat.ts), and the name tag that shows them. */
+  affixes: Affix[]
+  tag: HTMLDivElement | null
+  /** Poise damage toward a stagger, 0 to 1, and seconds since any landed. */
+  poise: number
+  poiseQuiet: number
+  /** Staggers so far. Each makes a boss harder to break. */
+  breaks: number
+  /** Seconds left stunned. */
+  stunT: number
+  /** Dazed or winded after a charge or a pounce: takes double poise. */
+  dazeT: number
+  /** The attack or ability in progress. */
+  act: EnemyAct | null
+  /** Seconds until its ability is ready. */
+  sigCd: number
+  /** Holds an attack turn: may close in and swing. Without one it circles. */
+  token: boolean
+  tokenSwings: number
+  /** Seconds before it may take a turn again. */
+  waitT: number
+  /** Which way it circles, ±1. */
+  orbit: number
+  /** Near a Packleader this frame. */
+  led: boolean
+  /** Warded elites: damage the ward still soaks. */
+  ward: number
+  wardFx: THREE.Mesh | null
+  /** Skeletons: seconds left as a bone pile, its marker, and whether it already rose. */
+  pile: number
+  pileTele: Tele | null
+  risen: boolean
+  /** Shadowed elites: seconds until the next blink. */
+  blinkCd: number
+  /** Seconds spent making room for its ability. */
+  setT: number
+  /** Height off the ground mid-leap. */
+  lift: number
+  halo: THREE.Mesh | null
 }
+
+type ActMove = 'swing' | 'spit' | 'dash' | 'leap' | 'retch' | 'cast' | 'fan' | 'blink' | 'bossblink'
+
+/** One telegraphed area: a disc, a lane from a point, or a wedge. Angles are atan2(dx, dz). */
+interface Shape {
+  type: 'circle' | 'lane' | 'cone'
+  x: number
+  z: number
+  r: number
+  angle: number
+  len: number
+  width: number
+  half: number
+  tele: Tele
+}
+
+/** An enemy's attack or ability: wind-up (marked on the ground), the move, then a rest. */
+interface EnemyAct {
+  move: ActMove
+  stage: 'wind' | 'go' | 'rest'
+  t: number
+  wind: number
+  go: number
+  rest: number
+  /** Red abilities cannot be staggered out of. */
+  red: boolean
+  /** Target point, locked direction, and the start of a leap or a dash. */
+  x: number
+  z: number
+  dx: number
+  dz: number
+  ox: number
+  oz: number
+  len: number
+  width: number
+  r: number
+  dmg: number
+  hit: boolean
+  shapes: Shape[]
+  /** Plain attacks follow the hero this long, then commit. */
+  track: number
+  /** Repeats left (the enraged pound). */
+  n: number
+  boss: boolean
+}
+
+interface PoolSpec {
+  readonly r: number
+  readonly time: number
+  readonly tick: number
+  readonly dmg: number
+}
+
+/** A red area that lands on its own clock: lobs, graves, beams, a volatile death. */
+interface Blast {
+  shapes: Shape[]
+  t: number
+  wind: number
+  dmg: number
+  boss: boolean
+  red: boolean
+  src: Actor | null
+  pool: PoolSpec | null
+  glob: THREE.Mesh | null
+  ox: number
+  oz: number
+}
+
+/** Bile or acid on the ground: hurts on a tick while the hero stands in it. */
+interface Pool {
+  x: number
+  z: number
+  r: number
+  life: number
+  max: number
+  tick: number
+  every: number
+  dmg: number
+  boss: boolean
+  tele: Tele
+  src: Actor | null
+}
+
+/** The hero's body, for what counts as inside a marked area. */
+const HERO_R = 0.35
+
+/** HP a range dummy staggers against, so the yard shows what a stagger takes. */
+const DUMMY_POISE_HP = 140
 
 interface Spark {
   x: number
@@ -284,6 +428,8 @@ interface Bolt {
   vz: number
   life: number
   dmg: number
+  boss: boolean
+  src: Actor | null
 }
 
 interface Floater {
@@ -433,7 +579,30 @@ export class Game {
   private slash: THREE.Sprite
   private beam: THREE.Mesh
   private novaRing: THREE.Mesh
-  private poundRing: THREE.Mesh
+  private teles: Telegraphs
+  /** Seconds before another red ability may start. */
+  private sigGap = 0
+  private blasts: Blast[] = []
+  private pools: Pool[] = []
+  /** The hero's walk velocity, smoothed, for leading lobs and pounces. */
+  private heroVx = 0
+  private heroVz = 0
+  /** Seconds since the hero last took a hit. Regen waits on it. */
+  private sinceHurt = 99
+  /** Test counters: kills on stunned enemies, and damage the hero has taken. */
+  private feeds = 0
+  /** Test hook: the hero holds its swings, so an enemy's whole kit can be watched. */
+  private calm = false
+  private hurtTotal = 0
+  private readonly wardMat = new THREE.MeshBasicMaterial({ color: 0x6ad8ff, transparent: true, opacity: 0.16, depthWrite: false, blending: THREE.AdditiveBlending })
+  private readonly affixRingMats = new Map<Affix, THREE.MeshBasicMaterial>()
+  private readonly boltGeo = new THREE.SphereGeometry(0.12, 10, 8)
+  private readonly boltMats = new Map<number, THREE.MeshBasicMaterial>()
+  private readonly globGeo = new THREE.SphereGeometry(0.2, 10, 8)
+  private readonly globMat = new THREE.MeshBasicMaterial({ color: 0x9cff3a })
+  private readonly haloGeo = new THREE.TorusGeometry(0.32, 0.045, 6, 18)
+  private readonly haloMat = new THREE.MeshBasicMaterial({ color: 0xffd04a })
+  private readonly wardGeo = new THREE.SphereGeometry(1, 18, 12)
   private bloodMat: THREE.MeshLambertMaterial
   private frames = 0
   private paintedDraws = 0
@@ -645,19 +814,7 @@ export class Game {
     this.novaRing.visible = false
     this.scene.add(this.novaRing)
 
-    this.poundRing = new THREE.Mesh(
-      new THREE.RingGeometry(0.7, 0.92, 40),
-      new THREE.MeshBasicMaterial({
-        color: 0xff5530,
-        transparent: true,
-        opacity: 0.7,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-      }),
-    )
-    this.poundRing.rotation.x = -Math.PI / 2
-    this.poundRing.visible = false
-    this.scene.add(this.poundRing)
+    this.teles = new Telegraphs(this.scene)
 
     this.lockRing = new THREE.Mesh(
       new THREE.RingGeometry(0.42, 0.55, 28),
@@ -895,6 +1052,7 @@ export class Game {
       this.sessionT += dt
       this.hintT += dt
       this.iframe = Math.max(0, this.iframe - dt)
+      this.sinceHurt += dt
       this.summonCd = Math.max(0, this.summonCd - dt)
       this.donCd = Math.max(0, this.donCd - dt)
       this.travelCd = Math.max(0, this.travelCd - dt)
@@ -906,12 +1064,13 @@ export class Game {
       }
       this.updateHero(dt, prof)
       this.updateEnemies(dt)
+      this.updateHazards(dt)
       this.updateNight(dt)
       this.updateBats(dt, prof)
       this.updateNova(dt, prof)
       this.updateBeam(dt)
       this.updateDrops(dt)
-      this.updateBolts(dt, prof)
+      this.updateBolts(dt)
       this.updateNodes(dt)
       this.updateHaven(dt)
       this.motes(dt)
@@ -988,7 +1147,8 @@ export class Game {
       this.animateActor(hero, dt)
       return
     }
-    if (hero.hp < hero.maxHp) hero.hp = Math.min(hero.maxHp, hero.hp + prof.regen * dt)
+    // Natural regen waits for a breather; lifesteal and Blood Drain still heal mid-fight.
+    if (hero.hp < hero.maxHp && this.sinceHurt > HERO_GUARD.regenDelay) hero.hp = Math.min(hero.maxHp, hero.hp + prof.regen * dt)
 
     const move = this.hud.getMove()
     const x0 = hero.x
@@ -1004,7 +1164,7 @@ export class Game {
         if (e.dead || this.dashHit.has(e.id)) continue
         if (Math.hypot(e.x - hero.x, e.z - hero.z) < 1.05 + e.radius) {
           this.dashHit.add(e.id)
-          this.damageEnemy(e, skillDamage('dash', prof, this.save.powers.dash), false)
+          this.damageEnemy(e, skillDamage('dash', prof, this.save.powers.dash), false, SKILL_POISE.dash)
         }
       }
     } else if (move.active) {
@@ -1030,6 +1190,10 @@ export class Game {
     }
     const moved = Math.hypot(hero.x - x0, hero.z - z0)
     const travel = moved > 0.012 ? Math.atan2(hero.x - x0, hero.z - z0) : null
+    if (dt > 0) {
+      this.heroVx = this.damp(this.heroVx, dashing ? 0 : (hero.x - x0) / dt, dt, 8)
+      this.heroVz = this.damp(this.heroVz, dashing ? 0 : (hero.z - z0) / dt, dt, 8)
+    }
     const lock = this.updateLock(dt)
     const attackTarget =
       !dashing && hero.atkCd <= 0 && hero.atkT <= 0 ? this.nearest(2.15, false, true) : null
@@ -1067,7 +1231,7 @@ export class Game {
       }
       if (hero.atkT >= len) hero.atkT = 0
     }
-    if (this.dashT <= 0 && hero.atkCd <= 0 && hero.atkT <= 0) {
+    if (this.dashT <= 0 && hero.atkCd <= 0 && hero.atkT <= 0 && !this.calm) {
       const target = this.nearest(2.15, false, true)
       if (target) {
         // The clip plays at the weapon's own rate. The hit lands on its
@@ -1173,24 +1337,20 @@ export class Game {
       if (dot < w.arc) continue
       const crit = Math.random() < prof.crit
       const dmg = prof.dmg * (crit ? 1.7 : 1)
-      this.damageEnemy(e, dmg, crit)
+      // No push: the hit rocks it in place, and its poise does the rest.
+      this.damageEnemy(e, dmg, crit, w.poise)
       const nx = dx / dist
       const nz = dz / dist
-      if (!e.dummy) {
-        e.kx = nx * 14 * w.knock
-        e.kz = nz * 14 * w.knock
-        e.knockT = 0.22
-        fought = true
-      }
-      e.flinch = 0.2
+      if (!e.dummy) fought = true
+      e.flinch = 0.2 * this.fightOf(e).flinch
       e.hitFlash = 0.18
       this.spawnImpact(hero.x + nx * Math.min(dist, 1.15), 1.05, hero.z + nz * Math.min(dist, 1.15))
       any = true
     }
     if (any) {
       this.sfx.play('hit')
-      if (fought) this.hitStop = 0.08 * Math.max(1, w.knock * 0.85)
-      this.shake = Math.max(this.shake, 0.26 * Math.max(1, w.knock * 0.8))
+      if (fought) this.hitStop = Math.max(this.hitStop, 0.06 * Math.max(1, w.poise * 0.9))
+      this.shake = Math.max(this.shake, 0.2 * Math.max(1, w.poise * 0.75))
     }
   }
 
@@ -1274,17 +1434,22 @@ export class Game {
   private updateEnemies(dt: number): void {
     const hero = this.hero
     this.tickPods(dt)
+    this.sigGap = Math.max(0, this.sigGap - dt)
+    this.markLeaders()
+    this.assignTokens(dt)
     for (const e of this.enemies) {
       if (e.dummy) {
         e.moving = 0
-        e.pending = null
-        e.knockT = 0
-        e.kx = 0
-        e.kz = 0
+        e.act = null
         e.speed = 0
         e.dmg = 0
         e.hitFlash = Math.max(0, e.hitFlash - dt)
         e.flinch = Math.max(0, e.flinch - dt)
+        this.tickPoise(e, dt)
+        if (e.stunT > 0) {
+          e.stunT -= dt
+          if (e.stunT <= 0) this.endStun(e)
+        }
         this.placeActor(e)
         this.animateActor(e, dt)
         continue
@@ -1311,130 +1476,915 @@ export class Game {
       e.swingT = Math.max(0, e.swingT - dt)
       e.hitFlash = Math.max(0, e.hitFlash - dt)
       e.flinch = Math.max(0, e.flinch - dt)
-      if (e.knockT > 0) {
-        e.knockT -= dt
-        this.moveActor(e, e.kx * dt, e.kz * dt)
-        const decay = Math.exp(-6 * dt)
-        e.kx *= decay
-        e.kz *= decay
+      e.dazeT = Math.max(0, e.dazeT - dt)
+      this.tickPoise(e, dt)
+      if (e.pile > 0) {
+        this.updatePile(e, dt)
+        continue
+      }
+      if (e.stunT > 0) {
+        e.stunT -= dt
         e.moving = 0
-        this.turnTowardPoint(e, hero.x, hero.z, dt, 4)
+        if (e.stunT <= 0) this.endStun(e)
         this.placeActor(e)
         this.animateActor(e, dt)
         continue
       }
-      if (e.pending) {
-        e.pending.t -= dt
-        if (e.pending.t <= 0) {
-          const pending = e.pending
-          e.pending = null
-          if (!hero.dead && this.iframe <= 0 && Math.hypot(hero.x - e.x, hero.z - e.z) < e.radius + 1.35) {
-            this.damageHero(pending.dmg, pending.boss)
-          }
-        }
-      }
-      const dist = Math.hypot(hero.x - e.x, hero.z - e.z)
       if (e.kind === 'hero') continue
-      const bossing = e.kind === 'boss' || e.kind === 'don'
-      const sheet = e.kind === 'boss' || e.kind === 'don' ? this.rivalBlueprint() : null
-      const def = e.kind === 'boss' || e.kind === 'don' ? null : ENEMIES[e.kind]
-      const speed = sheet ? sheet.speed : e.speed
-      const range = bossing ? 1.45 : def!.range
-      const aggro = bossing ? 12 : this.podAggro(e, def!.aggro)
-      if (bossing && e.poundT > 0) {
-        e.poundT -= dt
-        e.moving = 0
-        this.poundRing.visible = true
-        const k = 1 - e.poundT / 0.72
-        this.poundRing.position.set(e.poundX, 0.06, e.poundZ)
-        this.poundRing.scale.setScalar(0.6 + k * 2.4)
-        ;(this.poundRing.material as THREE.MeshBasicMaterial).opacity = 0.25 + k * 0.55
-        if (e.poundT <= 0) {
-          this.poundRing.visible = false
-          this.shake = Math.max(this.shake, 0.45)
-          if (!hero.dead && this.iframe <= 0 && Math.hypot(hero.x - e.poundX, hero.z - e.poundZ) < 2.25) {
-            this.damageHero(this.rivalBlueprint().pound, true)
-          }
-          this.burst(e.poundX, 0.3, e.poundZ, 0xff4428, 16, 3.4, 0.45)
-        }
-      } else if (dist < aggro && !hero.dead) {
-        this.turnTowardPoint(e, hero.x, hero.z, dt, 8)
-        if (e.kind === 'spitter' && dist < range && dist > 2.3) {
-          e.moving = 0.2
-          e.atkCd -= dt
-          if (e.atkCd <= 0) {
-            e.atkCd = ENEMIES.spitter.cd
-            this.shootBolt(e, e.dmg)
-          }
-        } else if (e.kind === 'spitter' && dist <= 2.3) {
-          const dx = e.x - hero.x
-          const dz = e.z - hero.z
-          const len = Math.hypot(dx, dz) || 1
-          this.moveActor(e, (dx / len) * speed * dt, (dz / len) * speed * dt)
-          e.moving = 1
-        } else if (dist > range) {
-          const dx = hero.x - e.x
-          const dz = hero.z - e.z
-          const len = Math.hypot(dx, dz) || 1
-          this.moveActor(e, (dx / len) * speed * dt, (dz / len) * speed * dt)
-          e.moving = 1
-        } else {
-          e.moving = 0.15
-          e.atkCd -= dt
-          if (e.atkCd <= 0) {
-            e.atkCd = bossing ? 1.35 : def!.cd
-            e.swingT = 0.28
-            e.swingDur = 0.28
-            const dmg = sheet ? sheet.dmg : e.dmg
-            e.pending = { t: 0.16, dmg, boss: bossing }
-          }
-        }
-        if (bossing) {
-          e.poundCd -= dt
-          if (e.poundCd <= 0 && e.poundT <= 0) {
-            e.poundCd = 4.6
-            e.poundT = 0.72
-            e.poundX = e.x
-            e.poundZ = e.z
-          }
-          if (!e.added && e.hp < e.maxHp * 0.6) {
-            e.added = true
-            if (this.district === 'slums') {
-              for (const mark of LITTER) {
-                const spot = this.litterSpot(mark.x, mark.z)
-                if (spot) this.spawnEnemy('hound', spot.x, spot.z, { returns: false })
-              }
-              this.hud.toast('The king calls his litter')
-            } else {
-              // Everyone else calls two of the zone's own to his side.
-              const pods = this.zonePods()
-              const kinds = pods[0]?.mixes[0]?.kinds ?? (['thug'] as Foe[])
-              for (const [i, side] of [-1, 1].entries()) {
-                const spot = this.clampArena(e.x + side * 1.1, e.z + 0.5)
-                if (this.clearSpawn(spot.x, spot.z, 0.5)) this.spawnEnemy(kinds[i % kinds.length], spot.x, spot.z)
-              }
-              this.hud.toast(`${MAPS[this.district].boss.name} calls for help`)
-            }
-          }
-        }
+      const boss = this.isBoss(e)
+      if (boss) this.bossPhase(e)
+      e.atkCd -= dt
+      e.sigCd -= dt
+      e.blinkCd -= dt
+      if (e.act) {
+        this.updateAct(e, dt)
       } else {
-        e.wanderT -= dt
-        const home = this.podHome(e)
-        if (home) {
-          e.wanderA = Math.atan2(home.x - e.x, home.z - e.z)
-          e.wanderT = 0.6
-        } else if (e.wanderT <= 0) {
-          e.wanderT = 1.2 + Math.random() * 1.8
-          e.wanderA = Math.random() * Math.PI * 2
+        const dist = Math.hypot(hero.x - e.x, hero.z - e.z)
+        const aggro = boss ? 12 : this.podAggro(e, ENEMIES[e.kind as Foe].aggro)
+        if (dist < aggro && !hero.dead) {
+          if (boss) this.bossThink(e, dist, dt)
+          else this.foeThink(e, dist, dt)
+        } else {
+          const speed = this.speedOf(e)
+          e.wanderT -= dt
+          const home = this.podHome(e)
+          if (home) {
+            e.wanderA = Math.atan2(home.x - e.x, home.z - e.z)
+            e.wanderT = 0.6
+          } else if (e.wanderT <= 0) {
+            e.wanderT = 1.2 + Math.random() * 1.8
+            e.wanderA = Math.random() * Math.PI * 2
+          }
+          this.moveActor(e, Math.sin(e.wanderA) * speed * 0.35 * dt, Math.cos(e.wanderA) * speed * 0.35 * dt)
+          e.moving = 0.4
+          this.turnTowardAngle(e, e.wanderA, dt, 4)
         }
-        this.moveActor(e, Math.sin(e.wanderA) * speed * 0.35 * dt, Math.cos(e.wanderA) * speed * 0.35 * dt)
-        e.moving = 0.4
-        this.turnTowardAngle(e, e.wanderA, dt, 4)
       }
-      this.separate(e)
+      if (e.dead) continue
+      if (!e.act || e.act.stage !== 'go') this.separate(e)
       this.placeActor(e)
+      if (e.lift > 0) e.rig.root.position.y = e.lift
       this.animateActor(e, dt)
     }
+  }
+
+  private isBoss(e: Actor): boolean {
+    return e.kind === 'boss' || e.kind === 'don'
+  }
+
+  private has(e: Actor, a: Affix): boolean {
+    return e.affixes.includes(a)
+  }
+
+  /** The fight numbers for an enemy: its kind's, or the bosses'. */
+  private fightOf(e: Actor): Omit<FoeCombat, 'sig'> {
+    if (e.kind === 'boss' || e.kind === 'don' || e.kind === 'hero') return BOSS_COMBAT
+    return FOE_COMBAT[e.kind]
+  }
+
+  private speedOf(e: Actor): number {
+    let s = this.isBoss(e) ? this.rivalBlueprint().speed : e.speed
+    if (this.isBoss(e) && e.phase >= 2) s *= BOSS_PHASE.rageSpeed
+    if (this.has(e, 'frenzied')) s *= AFFIX.frenzied.speed
+    if (e.led) s *= AFFIX.packleader.speed
+    return s
+  }
+
+  /** One plain hit from this enemy, before the hero's armor. */
+  private dmgOf(e: Actor): number {
+    const base = this.isBoss(e) ? this.rivalBlueprint().dmg : e.dmg
+    return base * (e.led ? AFFIX.packleader.dmg : 1)
+  }
+
+  /** Seconds between plain attacks. */
+  private cdOf(e: Actor): number {
+    let cd = this.isBoss(e) ? 1.35 : ENEMIES[e.kind as Foe].cd
+    if (this.isBoss(e) && e.phase >= 2) cd *= BOSS_PHASE.rageCd
+    if (this.has(e, 'frenzied')) cd *= AFFIX.frenzied.cd
+    return cd
+  }
+
+  /** Packleaders lift everyone near them. */
+  private markLeaders(): void {
+    const leaders = this.enemies.filter((e) => !e.dead && e.affixes.includes('packleader'))
+    for (const e of this.enemies) {
+      e.led = !e.dead && leaders.some((l) => l !== e && Math.hypot(l.x - e.x, l.z - e.z) < AFFIX.packleader.r)
+    }
+  }
+
+  /**
+   * Only a few enemies may close in and swing at once; the rest circle. A
+   * holder that has swung twice hands its turn to whoever has waited.
+   */
+  private assignTokens(dt: number): void {
+    const hero = this.hero
+    const max = ATTACK_TOKENS
+    const want: Actor[] = []
+    for (const e of this.enemies) {
+      e.waitT = Math.max(0, e.waitT - dt)
+      const ok =
+        !hero.dead &&
+        !e.dead &&
+        !e.dummy &&
+        e.kind !== 'hero' &&
+        !this.isBoss(e) &&
+        e.kind !== 'spitter' &&
+        e.pile <= 0 &&
+        e.intro <= 0 &&
+        Math.hypot(hero.x - e.x, hero.z - e.z) < this.podAggro(e, ENEMIES[e.kind as Foe].aggro)
+      if (!ok) {
+        e.token = false
+        e.tokenSwings = 0
+        continue
+      }
+      want.push(e)
+    }
+    const waiting = want.filter((e) => !e.token && e.waitT <= 0)
+    let held = want.filter((e) => e.token).length
+    if (waiting.length) {
+      for (const e of want) {
+        if (e.token && e.tokenSwings >= 2 && !e.act) {
+          e.token = false
+          e.tokenSwings = 0
+          e.waitT = 1.4
+          held--
+        }
+      }
+    }
+    const d = (e: Actor) => Math.hypot(hero.x - e.x, hero.z - e.z)
+    waiting.sort((a, b) => d(a) - d(b))
+    for (const e of waiting) {
+      if (held >= max) break
+      e.token = true
+      e.tokenSwings = 0
+      held++
+    }
+  }
+
+  /** A plain enemy with the hero in sight: its ability if it can, else its turn to swing, else circling. */
+  private foeThink(e: Actor, dist: number, dt: number): void {
+    const hero = this.hero
+    const kind = e.kind as Foe
+    const fight = FOE_COMBAT[kind]
+    const speed = this.speedOf(e)
+    this.turnTowardPoint(e, hero.x, hero.z, dt, fight.turn)
+    if (this.tryShadow(e, dist)) return
+    if (this.trySig(e, dist)) return
+    if (this.setUp(e, dist, dt, speed)) return
+    if (kind === 'spitter') {
+      if (dist <= 2.3) {
+        const dx = e.x - hero.x
+        const dz = e.z - hero.z
+        const len = Math.hypot(dx, dz) || 1
+        this.moveActor(e, (dx / len) * speed * dt, (dz / len) * speed * dt)
+        e.moving = 1
+      } else if (dist > ENEMIES.spitter.range) {
+        this.stepToward(e, hero.x, hero.z, speed, dt)
+      } else {
+        e.moving = 0.2
+        if (e.atkCd <= 0) this.startSpit(e)
+      }
+      return
+    }
+    const reach = e.radius + fight.reach + HERO_R
+    if (e.token) {
+      if (dist > reach * 0.82) this.stepToward(e, hero.x, hero.z, speed, dt)
+      else {
+        e.moving = 0.15
+        if (e.atkCd <= 0) this.startSwing(e)
+      }
+      return
+    }
+    this.circleHero(e, dist, dt, speed)
+  }
+
+  /**
+   * A gap-closer whose ability is ready gives itself room first: the thug and
+   * the thrall back off, the hound slips round to the flank. It gives up after
+   * a couple of seconds and tries again later.
+   */
+  private setUp(e: Actor, dist: number, dt: number, speed: number): boolean {
+    const sig = FOE_COMBAT[e.kind as Foe].sig
+    if (e.sigCd > 0 || (sig !== 'charge' && sig !== 'pounce' && sig !== 'lunge') || !this.redFree()) {
+      e.setT = 0
+      return false
+    }
+    e.setT += dt
+    if (e.setT > 2.2) {
+      e.sigCd = 2.5
+      e.setT = 0
+      return false
+    }
+    if (sig === 'lunge') {
+      this.circleHero(e, dist, dt, speed)
+      return true
+    }
+    const min = sig === 'charge' ? SIG.charge.min : SIG.pounce.min
+    if (dist >= min + 0.3) return false
+    const hero = this.hero
+    const dx = e.x - hero.x
+    const dz = e.z - hero.z
+    const len = Math.hypot(dx, dz) || 1
+    this.moveActor(e, (dx / len) * speed * 0.85 * dt, (dz / len) * speed * 0.85 * dt)
+    e.moving = 0.8
+    return true
+  }
+
+  private stepToward(e: Actor, x: number, z: number, speed: number, dt: number): void {
+    const dx = x - e.x
+    const dz = z - e.z
+    const len = Math.hypot(dx, dz) || 1
+    this.moveActor(e, (dx / len) * speed * dt, (dz / len) * speed * dt)
+    e.moving = 1
+  }
+
+  /** Waiting its turn: keeps a ring around the hero and drifts round it. Hounds give ground when faced. */
+  private circleHero(e: Actor, dist: number, dt: number, speed: number): void {
+    const hero = this.hero
+    const fx = Math.sin(hero.facing)
+    const fz = -Math.cos(hero.facing)
+    const ax = e.x - hero.x
+    const az = e.z - hero.z
+    let r = ORBIT.r + (e.id % 3) * ORBIT.spread
+    if (e.kind === 'hound' && (ax * fx + az * fz) / (dist || 1) > 0.45) r += 1.1
+    const a = Math.atan2(ax, az) + e.orbit * ORBIT.speed * (e.kind === 'hound' ? 1.7 : 1) * dt * 2.2
+    const tx = hero.x + Math.sin(a) * r
+    const tz = hero.z + Math.cos(a) * r
+    const dx = tx - e.x
+    const dz = tz - e.z
+    const len = Math.hypot(dx, dz)
+    if (len < 0.12) {
+      e.moving = 0.1
+      return
+    }
+    const step = Math.min(len, speed * 0.7 * dt)
+    const x0 = e.x
+    const z0 = e.z
+    this.moveActor(e, (dx / len) * step, (dz / len) * step)
+    e.moving = 0.6
+    // Blocked by a wall or a crate: circle the other way.
+    if (Math.hypot(e.x - x0, e.z - z0) < step * 0.3 && Math.random() < 0.08) e.orbit *= -1
+  }
+
+  /** Red abilities winding up right now. */
+  private redCount(): number {
+    let n = 0
+    for (const e of this.enemies) if (!e.dead && e.act?.red && e.act.stage === 'wind') n++
+    return n + this.blasts.filter((b) => b.red && b.t < b.wind).length
+  }
+
+  /** Minions hold their red abilities while the boss's own is on the ground. */
+  private redFree(): boolean {
+    return this.sigGap <= 0 && this.redCount() < sigSlots(this.tier()) && !this.bossRed()
+  }
+
+  /** A boss's red move or blast still winding up. */
+  private bossRed(): boolean {
+    for (const e of this.enemies) if (!e.dead && this.isBoss(e) && e.act?.red && e.act.stage === 'wind') return true
+    return this.blasts.some((b) => b.boss && b.t < b.wind)
+  }
+
+  private claimRed(): void {
+    this.sigGap = sigGap(this.tier())
+  }
+
+  /** The hero's walk, smoothed: where a lob or a pounce leads its aim. */
+  private heroLead(seconds: number): { x: number; z: number } {
+    return this.clampArena(this.hero.x + this.heroVx * seconds, this.hero.z + this.heroVz * seconds)
+  }
+
+  private newAct(move: ActMove, wind: number, go: number, rest: number, red: boolean, dmg: number): EnemyAct {
+    return { move, stage: 'wind', t: 0, wind, go, rest, red, x: 0, z: 0, dx: 0, dz: 1, ox: 0, oz: 0, len: 0, width: 0, r: 0, dmg, hit: false, shapes: [], track: 0, n: 0, boss: false }
+  }
+
+  private addShape(act: EnemyAct, shape: Omit<Shape, 'tele'>): void {
+    const tone = act.red ? 'red' : 'gold'
+    let tele: Tele
+    if (shape.type === 'circle') tele = this.teles.circle(shape.x, shape.z, shape.r, tone)
+    else if (shape.type === 'lane') tele = this.teles.lane(shape.x, shape.z, shape.angle, shape.len, shape.width, tone)
+    else tele = this.teles.cone(shape.x, shape.z, shape.angle, shape.r, shape.half, tone)
+    act.shapes.push({ ...shape, tele })
+  }
+
+  private endAct(e: Actor): void {
+    if (!e.act) return
+    for (const s of e.act.shapes) this.teles.release(s.tele)
+    e.act = null
+    e.lift = 0
+    e.atkCd = Math.max(e.atkCd, this.cdOf(e) * 0.5)
+    // A stagger that landed during a red ability takes hold once it is over.
+    if (e.poise >= 1 && e.stunT <= 0 && !e.dead) this.stagger(e)
+  }
+
+  private cancelAct(e: Actor): void {
+    if (!e.act) return
+    for (const s of e.act.shapes) this.teles.release(s.tele)
+    e.act = null
+    e.lift = 0
+  }
+
+  /** Is the hero inside a shape? A little slack for the hero's own body. */
+  private inShape(s: Shape, x: number, z: number): boolean {
+    const dx = x - s.x
+    const dz = z - s.z
+    if (s.type === 'circle') return Math.hypot(dx, dz) < s.r + HERO_R * 0.6
+    const fx = Math.sin(s.angle)
+    const fz = Math.cos(s.angle)
+    if (s.type === 'lane') {
+      const along = dx * fx + dz * fz
+      const side = Math.abs(dx * fz - dz * fx)
+      return along > -HERO_R && along < s.len + HERO_R && side < s.width / 2 + HERO_R * 0.6
+    }
+    const d = Math.hypot(dx, dz)
+    if (d < 0.55) return true
+    if (d > s.r + HERO_R * 0.6) return false
+    return (dx * fx + dz * fz) / d > Math.cos(s.half)
+  }
+
+  /** Lands an act's shapes on the hero: one hit at most, whatever they overlap. */
+  private landShapes(e: Actor | null, shapes: Shape[], dmg: number, boss: boolean): boolean {
+    const hero = this.hero
+    if (hero.dead) return false
+    if (!shapes.some((s) => this.inShape(s, hero.x, hero.z))) return false
+    return this.damageHero(dmg, boss, e)
+  }
+
+  // ---- Plain attacks
+
+  private startSwing(e: Actor): void {
+    const fight = this.fightOf(e)
+    const boss = this.isBoss(e)
+    const wind = fight.windup * (this.has(e, 'frenzied') ? 0.85 : 1)
+    const act = this.newAct('swing', wind, 0, fight.recover, false, this.dmgOf(e))
+    act.boss = boss
+    act.track = wind * 0.5
+    const r = e.radius + fight.reach + HERO_R * 0.5
+    this.addShape(act, { type: 'cone', x: e.x, z: e.z, angle: e.facing, r, half: fight.half, len: 0, width: 0 })
+    e.act = act
+  }
+
+  private startSpit(e: Actor): void {
+    const hero = this.hero
+    const fight = FOE_COMBAT.spitter
+    const act = this.newAct('spit', fight.windup, 0, fight.recover, false, this.dmgOf(e))
+    const angle = Math.atan2(hero.x - e.x, hero.z - e.z)
+    act.dx = Math.sin(angle)
+    act.dz = Math.cos(angle)
+    act.track = fight.windup * 0.5
+    this.addShape(act, { type: 'lane', x: e.x, z: e.z, angle, len: ENEMIES.spitter.range + 0.6, width: 0.5, r: 0, half: 0 })
+    e.act = act
+  }
+
+  // ---- Abilities
+
+  /** Each kind's one ability, if it is ready and the moment suits it. */
+  private trySig(e: Actor, dist: number): boolean {
+    if (e.sigCd > 0 || !this.redFree()) return false
+    const hero = this.hero
+    const sig = FOE_COMBAT[e.kind as Foe].sig
+    const angle = Math.atan2(hero.x - e.x, hero.z - e.z)
+    const dx = Math.sin(angle)
+    const dz = Math.cos(angle)
+    const dmg = this.dmgOf(e)
+    let act: EnemyAct | null = null
+    if (sig === 'lunge') {
+      if (dist < SIG.lunge.min || dist > SIG.lunge.max) return false
+      // Only from the flank or behind: hounds give ground when faced.
+      const fx = Math.sin(hero.facing)
+      const fz = -Math.cos(hero.facing)
+      if (((e.x - hero.x) * fx + (e.z - hero.z) * fz) / (dist || 1) > 0.25) return false
+      act = this.newAct('dash', SIG.lunge.windup, SIG.lunge.time, 0.45, true, dmg * SIG.lunge.dmg)
+      act.len = SIG.lunge.len
+      act.width = SIG.lunge.width
+      this.addShape(act, { type: 'lane', x: e.x, z: e.z, angle, len: act.len, width: act.width, r: 0, half: 0 })
+      e.sigCd = SIG.lunge.cd
+    } else if (sig === 'retch') {
+      if (dist > SIG.retch.range || dist < 0.8) return false
+      act = this.newAct('retch', SIG.retch.windup, 0, 0.6, true, dmg * SIG.retch.dmg)
+      e.facing = angle
+      this.addShape(act, { type: 'cone', x: e.x, z: e.z, angle, r: SIG.retch.range, half: SIG.retch.half, len: 0, width: 0 })
+      e.sigCd = SIG.retch.cd
+    } else if (sig === 'pounce') {
+      if (dist < SIG.pounce.min || dist > SIG.pounce.max) return false
+      const at = this.heroLead(0.35)
+      if (!this.canOccupy(at.x, at.z, e.radius)) return false
+      act = this.newAct('leap', SIG.pounce.windup, SIG.pounce.air, SIG.pounce.winded, true, dmg * SIG.pounce.dmg)
+      act.x = at.x
+      act.z = at.z
+      act.r = SIG.pounce.r
+      this.addShape(act, { type: 'circle', x: at.x, z: at.z, r: act.r, angle: 0, len: 0, width: 0, half: 0 })
+      e.sigCd = SIG.pounce.cd
+    } else if (sig === 'lob') {
+      if (dist < 2.4 || dist > 9.5) return false
+      act = this.newAct('cast', 0.32, 0, 0.35, false, 0)
+      const at = this.heroLead(SIG.lob.lead)
+      this.addBlast(e, [{ type: 'circle', x: at.x, z: at.z, r: SIG.lob.r, angle: 0, len: 0, width: 0, half: 0 }], SIG.lob.windup, dmg * SIG.lob.dmg, false, SIG.lob.pool)
+      e.sigCd = SIG.lob.cd
+    } else if (sig === 'charge') {
+      if (dist < SIG.charge.min || dist > SIG.charge.max) return false
+      act = this.newAct('dash', SIG.charge.windup, SIG.charge.len / SIG.charge.speed, SIG.charge.dazed, true, dmg * SIG.charge.dmg)
+      act.len = SIG.charge.len
+      act.width = SIG.charge.width
+      this.addShape(act, { type: 'lane', x: e.x, z: e.z, angle, len: act.len, width: act.width, r: 0, half: 0 })
+      e.sigCd = SIG.charge.cd
+    }
+    if (!act) return false
+    act.dx = dx
+    act.dz = dz
+    act.ox = e.x
+    act.oz = e.z
+    e.setT = 0
+    if (act.red || act.move === 'cast') this.claimRed()
+    e.act = act
+    return true
+  }
+
+  /** Shadowed elites blink behind the hero, marked where they will land. */
+  private tryShadow(e: Actor, dist: number): boolean {
+    if (!this.has(e, 'shadowed') || e.blinkCd > 0 || dist < 2.2 || !this.redFree()) return false
+    const hero = this.hero
+    const fx = Math.sin(hero.facing)
+    const fz = -Math.cos(hero.facing)
+    const at = this.clampArena(hero.x - fx * 1.3, hero.z - fz * 1.3)
+    if (!this.canOccupy(at.x, at.z, e.radius)) return false
+    const act = this.newAct('blink', AFFIX.shadowed.windup, 0, 0, false, 0)
+    act.x = at.x
+    act.z = at.z
+    this.addShape(act, { type: 'circle', x: at.x, z: at.z, r: 0.7, angle: 0, len: 0, width: 0, half: 0 })
+    e.blinkCd = AFFIX.shadowed.cd
+    e.act = act
+    return true
+  }
+
+  /** Advances whatever the enemy is doing: wind-up, the move itself, then the rest after it. */
+  private updateAct(e: Actor, dt: number): void {
+    const act = e.act!
+    const hero = this.hero
+    act.t += dt
+    e.moving = 0
+    if (act.stage === 'wind') {
+      const k = act.t / Math.max(0.01, act.wind)
+      if (act.track > 0 && act.t < act.track) {
+        // Plain attacks follow the hero for the first half, then commit.
+        this.turnTowardPoint(e, hero.x, hero.z, dt, this.fightOf(e).turn * 1.4)
+        const s = act.shapes[0]
+        if (s) {
+          s.angle = act.move === 'spit' ? Math.atan2(hero.x - e.x, hero.z - e.z) : e.facing
+          this.teles.move(s.tele, e.x, e.z, s.angle)
+          act.dx = Math.sin(s.angle)
+          act.dz = Math.cos(s.angle)
+        }
+      } else if (act.move === 'dash' || act.move === 'retch' || act.move === 'leap') {
+        this.turnTowardAngle(e, Math.atan2(act.dx, act.dz), dt, 10)
+      }
+      for (const s of act.shapes) this.teles.progress(s.tele, k)
+      if (act.t < act.wind) return
+      act.t = 0
+      this.fireAct(e)
+      return
+    }
+    if (act.stage === 'go') {
+      this.updateGo(e, dt)
+      return
+    }
+    if (act.t >= act.rest) this.endAct(e)
+  }
+
+  /** The wind-up is over: the move happens. */
+  private fireAct(e: Actor): void {
+    const act = e.act!
+    const hero = this.hero
+    switch (act.move) {
+      case 'swing': {
+        e.swingT = 0.22
+        e.swingDur = 0.22
+        if (this.landShapes(e, act.shapes, act.dmg, act.boss) && act.boss) this.shake = Math.max(this.shake, 0.25)
+        e.tokenSwings++
+        e.atkCd = this.cdOf(e)
+        break
+      }
+      case 'spit': {
+        this.shootBolt(e, act.dmg, act.dx, act.dz, false, 0xd56bff)
+        e.atkCd = this.cdOf(e)
+        e.swingT = 0.2
+        e.swingDur = 0.2
+        break
+      }
+      case 'retch': {
+        this.landShapes(e, act.shapes, act.dmg, false)
+        const mid = this.clampArena(e.x + act.dx * SIG.retch.range * 0.55, e.z + act.dz * SIG.retch.range * 0.55)
+        this.addPool(e, mid.x, mid.z, SIG.retch.pool, false)
+        this.burst(e.x + act.dx, 1.1, e.z + act.dz, 0x9cff3a, 14, 3.2, 0.45)
+        break
+      }
+      case 'blink': {
+        this.burst(e.x, 0.9, e.z, 0x8a4aff, 12, 2.4, 0.4)
+        e.x = act.x
+        e.z = act.z
+        e.facing = Math.atan2(hero.x - e.x, hero.z - e.z)
+        this.burst(e.x, 0.9, e.z, 0x8a4aff, 12, 2.4, 0.4)
+        this.cancelAct(e)
+        if (this.isBoss(e)) return
+        this.startSwing(e)
+        return
+      }
+      case 'bossblink': {
+        this.burst(e.x, 0.9, e.z, 0xff2a6a, 14, 2.6, 0.45)
+        e.x = act.x
+        e.z = act.z
+        e.facing = Math.atan2(hero.x - e.x, hero.z - e.z)
+        this.landShapes(e, act.shapes, act.dmg, true)
+        this.burst(e.x, 0.5, e.z, 0xff2a6a, 18, 3.4, 0.5)
+        this.shake = Math.max(this.shake, 0.35)
+        break
+      }
+      case 'cast': {
+        if (act.shapes.length) {
+          this.landShapes(e, act.shapes, act.dmg, act.boss)
+          for (const s of act.shapes) {
+            if (s.type === 'circle') this.burst(s.x, 0.3, s.z, 0xff4428, 10, 3, 0.4)
+            else this.burst(s.x + Math.sin(s.angle) * s.len * 0.5, 0.4, s.z + Math.cos(s.angle) * s.len * 0.5, 0xff4428, 12, 3.6, 0.45)
+          }
+          this.shake = Math.max(this.shake, act.boss ? 0.4 : 0.2)
+        }
+        if (act.n > 1) {
+          // The enraged pound comes again, on wherever the hero is now.
+          act.n--
+          for (const s of act.shapes) this.teles.release(s.tele)
+          act.shapes = []
+          act.t = 0
+          act.wind = BOSS_PHASE.pound.windup * 0.7
+          const at = this.heroLead(0.2)
+          this.addShape(act, { type: 'circle', x: at.x, z: at.z, r: BOSS_PHASE.pound.r, angle: 0, len: 0, width: 0, half: 0 })
+          return
+        }
+        break
+      }
+      case 'fan': {
+        const base = Math.atan2(act.dx, act.dz)
+        const n = BOSS_SIGS.fan.n
+        for (let i = 0; i < n; i++) {
+          const a = base + (i - (n - 1) / 2) * BOSS_SIGS.fan.spread
+          this.shootBolt(e, act.dmg, Math.sin(a), Math.cos(a), true, 0xff3a4a, BOSS_SIGS.fan.speed)
+        }
+        break
+      }
+      case 'dash':
+      case 'leap': {
+        act.stage = 'go'
+        act.t = 0
+        act.ox = e.x
+        act.oz = e.z
+        for (const s of act.shapes) this.teles.progress(s.tele, 1)
+        return
+      }
+    }
+    for (const s of act.shapes) this.teles.release(s.tele)
+    act.shapes = []
+    act.stage = 'rest'
+    act.t = 0
+  }
+
+  /** The moving part of a lunge, a charge, or a leap. */
+  private updateGo(e: Actor, dt: number): void {
+    const act = e.act!
+    const hero = this.hero
+    const k = Math.min(1, act.t / Math.max(0.01, act.go))
+    if (act.move === 'dash') {
+      const speed = act.len / Math.max(0.01, act.go)
+      const x0 = e.x
+      const z0 = e.z
+      this.moveActor(e, act.dx * speed * dt, act.dz * speed * dt)
+      e.moving = 1
+      if (!act.hit && !hero.dead && Math.hypot(hero.x - e.x, hero.z - e.z) < e.radius + HERO_R + 0.35) {
+        act.hit = true
+        this.damageHero(act.dmg, act.boss, e)
+      }
+      const stuck = Math.hypot(e.x - x0, e.z - z0) < speed * dt * 0.25
+      if (k >= 1 || stuck) this.goDone(e)
+      return
+    }
+    // A leap: an arc from where it stood to the ring.
+    const x = act.ox + (act.x - act.ox) * k
+    const z = act.oz + (act.z - act.oz) * k
+    if (this.canOccupy(x, z, e.radius * 0.5)) {
+      e.x = x
+      e.z = z
+    }
+    e.lift = Math.sin(k * Math.PI) * (act.boss ? 1.6 : 1.2)
+    if (k < 1) return
+    e.lift = 0
+    this.landShapes(e, act.shapes, act.dmg, act.boss)
+    this.burst(act.x, 0.3, act.z, 0xff4428, 14, 3.2, 0.45)
+    this.shake = Math.max(this.shake, act.boss ? 0.4 : 0.22)
+    this.goDone(e)
+  }
+
+  private goDone(e: Actor): void {
+    const act = e.act!
+    for (const s of act.shapes) this.teles.release(s.tele)
+    act.shapes = []
+    act.stage = 'rest'
+    act.t = 0
+    e.lift = 0
+    // Charges and pounces leave the brute open: dazed, it staggers twice as fast.
+    if (act.rest >= 0.9) e.dazeT = act.rest
+  }
+
+  // ---- Lingering ground and delayed blasts
+
+  private addBlast(src: Actor | null, shapes: Omit<Shape, 'tele'>[], wind: number, dmg: number, boss: boolean, pool?: PoolSpec): void {
+    const blast: Blast = { shapes: [], t: 0, wind, dmg, boss, red: true, src, pool: pool ?? null, glob: null, ox: src?.x ?? 0, oz: src?.z ?? 0 }
+    for (const s of shapes) {
+      const tele = s.type === 'circle' ? this.teles.circle(s.x, s.z, s.r, 'red') : this.teles.lane(s.x, s.z, s.angle, s.len, s.width, 'red')
+      blast.shapes.push({ ...s, tele })
+    }
+    if (src && src.kind === 'spitter') {
+      const glob = new THREE.Mesh(this.globGeo, this.globMat)
+      glob.position.set(src.x, 1.2, src.z)
+      this.scene.add(glob)
+      blast.glob = glob
+    }
+    this.blasts.push(blast)
+  }
+
+  private addPool(src: Actor | null, x: number, z: number, spec: PoolSpec, boss: boolean): void {
+    const tele = this.teles.circle(x, z, spec.r, 'pool')
+    this.teles.progress(tele, 1)
+    this.pools.push({ x, z, r: spec.r, life: spec.time, max: spec.time, tick: 0.25, every: spec.tick, dmg: (src ? this.dmgOf(src) : 6) * spec.dmg, boss, tele, src })
+  }
+
+  private updateHazards(dt: number): void {
+    const hero = this.hero
+    for (let i = this.blasts.length - 1; i >= 0; i--) {
+      const b = this.blasts[i]
+      b.t += dt
+      const k = Math.min(1, b.t / b.wind)
+      for (const s of b.shapes) this.teles.progress(s.tele, k)
+      if (b.glob) {
+        const s = b.shapes[0]
+        b.glob.position.set(b.ox + (s.x - b.ox) * k, 1.2 + Math.sin(k * Math.PI) * 2.6 - k * 1.1, b.oz + (s.z - b.oz) * k)
+      }
+      if (b.t < b.wind) continue
+      this.landShapes(b.src && !b.src.dead ? b.src : null, b.shapes, b.dmg, b.boss)
+      for (const s of b.shapes) {
+        this.burst(s.x, 0.3, s.z, b.pool ? 0x9cff3a : 0xff4428, 12, 3.2, 0.45)
+        this.teles.release(s.tele)
+        if (b.pool) this.addPool(b.src, s.x, s.z, b.pool, b.boss)
+      }
+      if (b.glob) this.scene.remove(b.glob)
+      this.blasts.splice(i, 1)
+    }
+    for (let i = this.pools.length - 1; i >= 0; i--) {
+      const p = this.pools[i]
+      p.life -= dt
+      p.tick -= dt
+      this.teles.fade(p.tele, Math.min(1, p.life / 0.6))
+      if (p.tick <= 0) {
+        p.tick = p.every
+        if (!hero.dead && Math.hypot(hero.x - p.x, hero.z - p.z) < p.r + HERO_R * 0.4) this.damageHero(p.dmg, p.boss, null)
+      }
+      if (p.life <= 0) {
+        this.teles.release(p.tele)
+        this.pools.splice(i, 1)
+      }
+    }
+  }
+
+  private clearHazards(): void {
+    for (const b of this.blasts) if (b.glob) this.scene.remove(b.glob)
+    this.blasts = []
+    this.pools = []
+    this.teles.clear()
+    this.sigGap = 0
+  }
+
+  // ---- Poise and stagger
+
+  private tickPoise(e: Actor, dt: number): void {
+    if (e.poise <= 0) return
+    e.poiseQuiet += dt
+    if (e.poiseQuiet > STAGGER.quiet && e.stunT <= 0) e.poise = Math.max(0, e.poise - STAGGER.regen * dt)
+  }
+
+  /** Poise damage from a hit: a share of max HP against what this enemy can take, times the weapon or skill's poise. */
+  private addPoise(e: Actor, amount: number, mult: number): void {
+    if (e.dead || e.stunT > 0 || e.pile > 0 || e.ward > 0 || mult <= 0) return
+    const fight = this.fightOf(e)
+    let need = fight.poise
+    if (this.isBoss(e)) need *= 1 + BOSS_COMBAT.poiseGrowth * e.breaks
+    if (this.has(e, 'ironhide')) need *= AFFIX.ironhide.poise
+    // Range dummies never fall, so they stagger against a nominal body instead of their bottomless HP.
+    const body = e.dummy ? DUMMY_POISE_HP : e.maxHp
+    const gain = (amount / Math.max(1, body) / need) * mult * (e.dazeT > 0 ? STAGGER.dazed : 1)
+    e.poise = Math.min(1, e.poise + gain)
+    e.poiseQuiet = 0
+    if (e.poise < 1) return
+    // Red abilities cannot be broken mid-move; the stagger waits for it to finish.
+    if (e.act?.red && e.act.stage !== 'rest') return
+    this.stagger(e)
+  }
+
+  private stagger(e: Actor): void {
+    e.poise = 0
+    e.breaks++
+    e.stunT = this.isBoss(e) ? BOSS_COMBAT.stun : STAGGER.stun
+    e.dazeT = 0
+    this.cancelAct(e)
+    e.moving = 0
+    this.floatAt(e.x, e.barY + 0.85, e.z, 'STAGGER', 'stagger')
+    this.burst(e.x, e.barY * 0.8, e.z, 0xffd04a, 14, 2.8, 0.45)
+    this.hitStop = Math.max(this.hitStop, 0.09)
+    this.shake = Math.max(this.shake, 0.3)
+    this.sfx.play('hit')
+    if (!e.halo) {
+      const halo = new THREE.Mesh(this.haloGeo, this.haloMat)
+      halo.rotation.x = -Math.PI / 2
+      e.rig.root.add(halo)
+      e.halo = halo
+    }
+    e.halo.position.y = (e.barY - 0.5) / Math.max(0.01, e.rig.root.scale.y)
+    e.halo.visible = true
+  }
+
+  private endStun(e: Actor): void {
+    e.stunT = 0
+    e.poise = 0
+    e.atkCd = Math.max(e.atkCd, 0.35)
+    if (e.halo) e.halo.visible = false
+  }
+
+  /** A skeleton's bone pile: strike it to finish it, or it stands again. */
+  private updatePile(e: Actor, dt: number): void {
+    e.pile -= dt
+    e.moving = 0
+    if (e.pileTele) this.teles.progress(e.pileTele, 1 - e.pile / SIG.rise.pile)
+    if (e.pile > 0) {
+      this.placeActor(e)
+      e.rig.bob.scale.set(1.15, 0.32, 1.15)
+      e.rig.bob.position.y = -0.2
+      return
+    }
+    this.teles.release(e.pileTele)
+    e.pileTele = null
+    e.pile = 0
+    e.risen = true
+    e.hp = Math.max(1, e.maxHp * SIG.rise.hp)
+    e.barLag = e.hp / e.maxHp
+    e.rig.bob.scale.setScalar(1)
+    e.rig.bob.position.y = 0
+    e.atkCd = 0.6
+    this.floatAt(e.x, e.barY + 0.6, e.z, 'RISES', 'stagger')
+    this.burst(e.x, 0.6, e.z, 0xf4f0e4, 12, 2.4, 0.45)
+    this.placeActor(e)
+  }
+
+  // ---- Bosses
+
+  private bossThink(e: Actor, dist: number, dt: number): void {
+    const hero = this.hero
+    this.turnTowardPoint(e, hero.x, hero.z, dt, BOSS_COMBAT.turn)
+    const rage = e.phase >= 2
+    e.poundCd -= dt
+    // The boss keeps its own clock: its moves never wait on the minions' turn at a red ability.
+    if (e.poundCd <= 0 && !this.bossRed()) {
+      e.poundCd = BOSS_PHASE.pound.cd * (rage ? BOSS_PHASE.rageCd : 1)
+      const act = this.newAct('cast', BOSS_PHASE.pound.windup, 0, 0.45, true, this.rivalBlueprint().pound)
+      act.boss = true
+      act.n = rage ? 3 : 1
+      this.addShape(act, { type: 'circle', x: e.x, z: e.z, r: BOSS_PHASE.pound.r, angle: 0, len: 0, width: 0, half: 0 })
+      this.claimRed()
+      e.act = act
+      return
+    }
+    if (e.phase >= 1 && e.sigCd <= 0 && !this.bossRed() && this.startBossSig(e, dist)) {
+      e.sigCd = BOSS_PHASE.sigCd * (rage ? BOSS_PHASE.rageCd : 1)
+      this.claimRed()
+      return
+    }
+    const reach = e.radius + BOSS_COMBAT.reach + HERO_R
+    if (dist > reach * 0.82) this.stepToward(e, hero.x, hero.z, this.speedOf(e), dt)
+    else {
+      e.moving = 0.15
+      if (e.atkCd <= 0) this.startSwing(e)
+    }
+  }
+
+  /** At 60% the boss calls help and starts its own move; at 30% it rages. */
+  private bossPhase(e: Actor): void {
+    const map = MAPS[this.district]
+    if (e.phase < 1 && e.hp < e.maxHp * BOSS_PHASE.turn) {
+      e.phase = 1
+      e.sigCd = 1.2
+      if (this.district === 'slums') {
+        for (const mark of LITTER) {
+          const spot = this.litterSpot(mark.x, mark.z)
+          if (spot) this.spawnEnemy('hound', spot.x, spot.z, { returns: false })
+        }
+        this.hud.toast(`The king calls his litter, and ${BOSS_SIG_LABEL[BOSS_SIG.slums]}`)
+      } else {
+        // Everyone else calls two of the zone's own to his side.
+        const pods = this.zonePods()
+        const kinds = pods[0]?.mixes[0]?.kinds ?? (['thug'] as Foe[])
+        for (const [i, side] of [-1, 1].entries()) {
+          const spot = this.clampArena(e.x + side * 1.1, e.z + 0.5)
+          if (this.clearSpawn(spot.x, spot.z, 0.5)) this.spawnEnemy(kinds[i % kinds.length], spot.x, spot.z)
+        }
+        this.hud.toast(`${map.boss.name} calls for help, and ${BOSS_SIG_LABEL[BOSS_SIG[this.district]]}`)
+      }
+    }
+    if (e.phase < 2 && e.hp < e.maxHp * BOSS_PHASE.rage) {
+      e.phase = 2
+      this.hud.toast(`${map.boss.name} is enraged`)
+      this.burst(e.x, 1.4, e.z, 0xff2238, 26, 4, 0.6)
+      this.shake = Math.max(this.shake, 0.5)
+      this.sfx.play('boss')
+    }
+  }
+
+  /** Each map's boss has one move of its own, built from the same marks as the rest. */
+  private startBossSig(e: Actor, dist: number): boolean {
+    const hero = this.hero
+    const sig = BOSS_SIG[this.district]
+    const sheet = this.rivalBlueprint()
+    const angle = Math.atan2(hero.x - e.x, hero.z - e.z)
+    const dx = Math.sin(angle)
+    const dz = Math.cos(angle)
+    const lane = (len: number, width: number, a = angle, x = e.x, z = e.z) => ({ type: 'lane' as const, x, z, angle: a, len, width, r: 0, half: 0 })
+    const ring = (x: number, z: number, r: number) => ({ type: 'circle' as const, x, z, r, angle: 0, len: 0, width: 0, half: 0 })
+    let act: EnemyAct
+    if (sig === 'lunge' || sig === 'charge') {
+      const spec = sig === 'lunge' ? BOSS_SIGS.lunge : BOSS_SIGS.charge
+      const go = sig === 'lunge' ? BOSS_SIGS.lunge.time : BOSS_SIGS.charge.len / BOSS_SIGS.charge.speed
+      act = this.newAct('dash', spec.windup, go, sig === 'charge' ? 1 : 0.5, true, sheet.dmg * spec.dmg)
+      act.len = spec.len
+      act.width = spec.width
+      this.addShape(act, lane(spec.len, spec.width))
+    } else if (sig === 'pounce') {
+      if (dist < 2.2) return false
+      const at = this.heroLead(0.4)
+      act = this.newAct('leap', BOSS_SIGS.pounce.windup, BOSS_SIGS.pounce.air, 0.6, true, sheet.dmg * BOSS_SIGS.pounce.dmg)
+      act.x = at.x
+      act.z = at.z
+      this.addShape(act, ring(at.x, at.z, BOSS_SIGS.pounce.r))
+    } else if (sig === 'blink') {
+      const fx = Math.sin(hero.facing)
+      const fz = -Math.cos(hero.facing)
+      const at = this.clampArena(hero.x - fx * BOSS_SIGS.blink.back, hero.z - fz * BOSS_SIGS.blink.back)
+      act = this.newAct('bossblink', BOSS_SIGS.blink.windup, 0, 0.5, true, sheet.dmg * BOSS_SIGS.blink.dmg)
+      act.x = at.x
+      act.z = at.z
+      this.addShape(act, ring(at.x, at.z, BOSS_SIGS.blink.r))
+    } else if (sig === 'fan') {
+      act = this.newAct('fan', BOSS_SIGS.fan.windup, 0, 0.45, true, sheet.dmg * BOSS_SIGS.fan.dmg)
+      const n = BOSS_SIGS.fan.n
+      for (let i = 0; i < n; i++) this.addShape(act, lane(BOSS_SIGS.fan.len, BOSS_SIGS.fan.width, angle + (i - (n - 1) / 2) * BOSS_SIGS.fan.spread))
+    } else {
+      act = this.newAct('cast', 0.4, 0, 0.5, true, 0)
+      if (sig === 'lob') {
+        const at = this.heroLead(BOSS_SIGS.lob.lead)
+        const shapes = [ring(at.x, at.z, BOSS_SIGS.lob.r)]
+        for (let i = 1; i < BOSS_SIGS.lob.n; i++) {
+          const a = Math.random() * Math.PI * 2
+          const p = this.clampArena(at.x + Math.sin(a) * BOSS_SIGS.lob.spread, at.z + Math.cos(a) * BOSS_SIGS.lob.spread)
+          shapes.push(ring(p.x, p.z, BOSS_SIGS.lob.r))
+        }
+        this.addBlast(e, shapes, BOSS_SIGS.lob.windup, sheet.dmg * BOSS_SIGS.lob.dmg, true)
+      } else if (sig === 'graves') {
+        const shapes = [ring(hero.x, hero.z, BOSS_SIGS.graves.r)]
+        const a0 = Math.random() * Math.PI * 2
+        for (let i = 1; i < BOSS_SIGS.graves.n; i++) {
+          const a = a0 + (i / (BOSS_SIGS.graves.n - 1)) * Math.PI * 2
+          const p = this.clampArena(hero.x + Math.sin(a) * BOSS_SIGS.graves.ring, hero.z + Math.cos(a) * BOSS_SIGS.graves.ring)
+          shapes.push(ring(p.x, p.z, BOSS_SIGS.graves.r))
+        }
+        this.addBlast(e, shapes, BOSS_SIGS.graves.windup, sheet.dmg * BOSS_SIGS.graves.dmg, true)
+      } else if (sig === 'beams') {
+        // Bars of dawn across the hero's ground, side to side of the boss's line.
+        const across = angle + Math.PI / 2
+        const ax = Math.sin(across)
+        const az = Math.cos(across)
+        const shapes = []
+        for (let i = 0; i < BOSS_SIGS.beams.n; i++) {
+          const off = (i - (BOSS_SIGS.beams.n - 1) / 2) * BOSS_SIGS.beams.gap
+          const cx = hero.x + dx * off - ax * BOSS_SIGS.beams.len * 0.5
+          const cz = hero.z + dz * off - az * BOSS_SIGS.beams.len * 0.5
+          shapes.push(lane(BOSS_SIGS.beams.len, BOSS_SIGS.beams.width, across, cx, cz))
+        }
+        this.addBlast(e, shapes, BOSS_SIGS.beams.windup, sheet.dmg * BOSS_SIGS.beams.dmg, true)
+      } else if (sig === 'slam') {
+        this.addBlast(e, [lane(BOSS_SIGS.slam.len, BOSS_SIGS.slam.width)], BOSS_SIGS.slam.windup, sheet.dmg * BOSS_SIGS.slam.dmg, true)
+      } else {
+        this.addBlast(e, [ring(e.x, e.z, BOSS_SIGS.nova.r)], BOSS_SIGS.nova.windup, sheet.dmg * BOSS_SIGS.nova.dmg, true)
+      }
+    }
+    act.boss = true
+    act.dx = dx
+    act.dz = dz
+    act.ox = e.x
+    act.oz = e.z
+    e.act = act
+    return true
   }
 
   private updateBats(dt: number, prof: CombatProfile): void {
@@ -1464,7 +2414,7 @@ export class Game {
       const dmg = skillDamage('bats', prof, this.save.powers.bats)
       for (const e of this.enemies) {
         if (e.dead) continue
-        if (Math.hypot(e.x - this.hero.x, e.z - this.hero.z) < this.batR + e.radius) this.damageEnemy(e, dmg, false)
+        if (Math.hypot(e.x - this.hero.x, e.z - this.hero.z) < this.batR + e.radius) this.damageEnemy(e, dmg, false, SKILL_POISE.bats)
       }
     }
   }
@@ -1485,7 +2435,7 @@ export class Game {
       const dmg = skillDamage('nova', prof, this.save.powers.nova)
       for (const e of this.enemies) {
         if (e.dead) continue
-        if (Math.hypot(e.x - this.hero.x, e.z - this.hero.z) < 4.3 + e.radius) this.damageEnemy(e, dmg, false)
+        if (Math.hypot(e.x - this.hero.x, e.z - this.hero.z) < 4.3 + e.radius) this.damageEnemy(e, dmg, false, SKILL_POISE.nova)
       }
       this.burst(this.hero.x, 0.6, this.hero.z, 0xff3355, 22, 4, 0.5)
     }
@@ -1559,7 +2509,7 @@ export class Game {
     }
   }
 
-  private updateBolts(dt: number, prof: CombatProfile): void {
+  private updateBolts(dt: number): void {
     for (let i = this.bolts.length - 1; i >= 0; i--) {
       const b = this.bolts[i]
       b.life -= dt
@@ -1568,7 +2518,7 @@ export class Game {
       b.mesh.position.set(b.x, b.y, b.z)
       const dist = Math.hypot(this.hero.x - b.x, this.hero.z - b.z)
       if (dist < 0.5 && !this.hero.dead && this.iframe <= 0) {
-        this.damageHero(mitigate(b.dmg, prof.armor, prof.resist, false), false)
+        this.damageHero(b.dmg, b.boss, b.src)
         b.life = 0
       }
       if (b.life <= 0) {
@@ -1808,7 +2758,13 @@ export class Game {
       const flop = e.dead && e.rig.root.visible && e.deathT <= 0.7
       if ((e.dead || !e.rig.root.visible) && !flop) {
         e.bar.style.display = 'none'
+        if (e.tag) e.tag.style.display = 'none'
         continue
+      }
+      if (e.tag) {
+        const near = Math.hypot(e.x - this.hero.x, e.z - this.hero.z) < 11
+        const tp = this.project(e.x, e.barY + 0.34, e.z)
+        this.hud.place(e.tag, tp.x, tp.y, tp.vis && near && !e.dead && this.mode === 'play')
       }
       const ratio = e.maxHp > 0 ? Math.max(0, e.hp / e.maxHp) : 0
       const gap = e.barLag - ratio
@@ -1816,7 +2772,7 @@ export class Game {
       else e.barLag = ratio
       e.barT = Math.max(0, e.barT - dt)
       e.barFlash = Math.max(0, e.barFlash - dt)
-      const show = flop || (ratio < 0.995 && e.barT > 0)
+      const show = flop || (ratio < 0.995 && e.barT > 0) || e.stunT > 0 || e.pile > 0
       const fade = !flop && e.barT < 0.45 ? Math.max(0, e.barT / 0.45) : 1
       const lag = e.bar.querySelector('.lag') as HTMLElement | null
       const fill = e.bar.querySelector('.fill') as HTMLElement | null
@@ -1824,7 +2780,11 @@ export class Game {
       if (lag) lag.style.width = `${Math.max(0, Math.min(1, e.barLag)) * 100}%`
       if (fill) fill.style.width = `${ratio * 100}%`
       if (hp) hp.textContent = String(Math.max(0, Math.round(e.hp)))
+      const poise = e.bar.querySelector('.poise') as HTMLElement | null
+      if (poise) poise.style.width = `${(e.stunT > 0 || e.pile > 0 ? 1 : e.poise) * 100}%`
       e.bar.classList.toggle('flash', e.barFlash > 0)
+      e.bar.classList.toggle('stunned', e.stunT > 0)
+      e.bar.classList.toggle('warded', e.ward > 0)
       e.bar.style.opacity = show ? fade.toFixed(3) : '0'
       const p = this.project(e.x, e.barY, e.z)
       this.hud.place(e.bar, p.x, p.y, p.vis && show && fade > 0.02)
@@ -1850,7 +2810,38 @@ export class Game {
     }
   }
 
+  /** Red abilities winding up off screen show as marks on the nearest edge. */
+  private updateThreats(): void {
+    const pts: { x: number; y: number; a: number }[] = []
+    if (this.mode === 'play' && this.hunting() && !this.paused()) {
+      const cx = this.viewW / 2
+      const cy = this.viewH / 2
+      const add = (x: number, z: number) => {
+        const p = this.project(x, 0.3, z)
+        const m = 30
+        if (p.vis && p.x > m && p.x < this.viewW - m && p.y > m + 40 && p.y < this.viewH - m) return
+        let dx = p.x - cx
+        let dy = p.y - cy
+        if (!p.vis) {
+          dx = -dx
+          dy = -dy
+        }
+        const a = Math.atan2(dy, dx)
+        const k = Math.min((cx - m) / Math.max(1e-3, Math.abs(Math.cos(a))), (cy - m) / Math.max(1e-3, Math.abs(Math.sin(a))))
+        pts.push({ x: cx + Math.cos(a) * k, y: cy + Math.sin(a) * k, a })
+      }
+      for (const e of this.enemies) {
+        if (e.dead || !e.act?.red || e.act.stage !== 'wind') continue
+        const s = e.act.shapes[0]
+        add(s ? s.x : e.x, s ? s.z : e.z)
+      }
+      for (const b of this.blasts) if (b.t < b.wind && b.shapes[0]) add(b.shapes[0].x, b.shapes[0].z)
+    }
+    this.hud.setThreats(pts.slice(0, 4))
+  }
+
   private updateHud(): void {
+    this.updateThreats()
     this.hud.setHp(this.hero.maxHp > 0 ? this.hero.hp / this.hero.maxHp : 0)
     const night = this.night
     this.hud.setPurse(night ? night.carried : bankedPurse(this.save), !!night)
@@ -1945,60 +2936,150 @@ export class Game {
     this.cdMax.drain = max
     this.beamT = 0.34
     this.beamTarget = target
-    const dealt = this.damageEnemy(target, skillDamage('drain', prof, this.save.powers.drain), false)
+    const dealt = this.damageEnemy(target, skillDamage('drain', prof, this.save.powers.drain), false, SKILL_POISE.drain)
     const heal = dealt * 0.55
     this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + heal)
     this.floatAt(this.hero.x, this.hero.barY * 0.74, this.hero.z, `+${Math.round(heal)}`, 'heal')
   }
 
-  private damageEnemy(e: Actor, raw: number, crit: boolean): number {
+  /** `poise` is the weapon's or skill's poise multiplier (combat.ts). */
+  private damageEnemy(e: Actor, raw: number, crit: boolean, poise = 1): number {
     if (e.dead) return 0
+    if (e.pile > 0) {
+      // Any blow on a bone pile scatters it for good.
+      this.teles.release(e.pileTele)
+      e.pileTele = null
+      e.pile = 0
+      e.risen = true
+      this.floatAt(e.x, e.barY * 0.6, e.z, 'SHATTERED', 'stagger')
+      this.burst(e.x, 0.4, e.z, 0xf4f0e4, 16, 3, 0.45)
+      this.killEnemy(e)
+      return 0
+    }
     const prev = e.maxHp > 0 ? e.hp / e.maxHp : 1
     e.barLag = Math.max(e.barLag, prev)
-    const amount = enemyMitigate(raw, e.armor)
+    let amount = enemyMitigate(raw, e.armor)
+    if (e.stunT > 0) amount *= STAGGER.exposed
+    if (this.has(e, 'ironhide')) amount *= 1 - AFFIX.ironhide.cut
+    // Bulwark: the Enforcer's shield takes most of what hits his front, unless he is mid-swing or reeling.
+    let blocked = false
+    if (e.kind === 'enforcer' && !e.act && e.stunT <= 0 && e.dazeT <= 0) {
+      const dx = this.hero.x - e.x
+      const dz = this.hero.z - e.z
+      const d = Math.hypot(dx, dz) || 1
+      if ((dx * Math.sin(e.facing) + dz * Math.cos(e.facing)) / d > SIG.bulwark.front) {
+        amount *= 1 - SIG.bulwark.cut
+        blocked = true
+      }
+    }
+    let warded = 0
+    if (e.ward > 0) {
+      warded = Math.min(e.ward, amount)
+      e.ward -= warded
+      amount -= warded
+      if (e.ward <= 0.01) {
+        e.ward = 0
+        if (e.wardFx) e.wardFx.visible = false
+        this.floatAt(e.x, e.barY + 0.8, e.z, 'WARD BREAKS', 'ward')
+        this.burst(e.x, e.barY * 0.6, e.z, 0x6ad8ff, 16, 3, 0.45)
+      }
+    }
     e.hp -= amount
     e.barT = e.kind === 'boss' || e.kind === 'don' ? 4.5 : 3.2
     e.barFlash = 0.14
     e.hitFlash = 0.12
     this.hits++
-    const txt = `-${Math.round(amount)}`
-    this.floatAt(e.x, e.barY + 0.48, e.z, txt, crit ? 'crit' : '')
-    this.burst(e.x, e.barY * 0.55, e.z, 0xff2438, crit ? 8 : 4, 2.4, 0.35)
+    const shown = amount + warded
+    const big = shown >= e.maxHp * 0.18
+    const cls = blocked ? 'block' : warded > 0 ? 'ward' : crit ? 'crit' : e.stunT > 0 ? 'exposed' : big ? 'big' : ''
+    this.floatAt(e.x, e.barY + 0.48, e.z, blocked ? `-${Math.round(shown)} BLOCKED` : `-${Math.round(shown)}`, cls)
+    this.burst(e.x, e.barY * 0.55, e.z, blocked ? 0xc8d0e0 : 0xff2438, crit ? 8 : 4, 2.4, 0.35)
+    this.addPoise(e, amount, poise * (blocked ? 0.25 : 1))
     if (e.dummy) {
       this.noteRangeHit(e, amount)
       return amount
     }
     const ls = amount * profile(this.save).lifesteal
     if (!this.hero.dead) this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + ls)
-    if (e.hp <= 0) this.killEnemy(e)
+    if (e.hp <= 0) {
+      if (e.kind === 'skeleton' && !e.risen && e.stunT <= 0) this.collapse(e)
+      else this.killEnemy(e)
+    }
     return amount
   }
 
-  private damageHero(raw: number, fromBoss: boolean): void {
-    if (this.hero.dead || this.iframe > 0) return
+  /** Reassemble: a skeleton struck down falls into a pile, and stands again unless the pile is struck. */
+  private collapse(e: Actor): void {
+    e.hp = 0
+    e.pile = SIG.rise.pile
+    e.token = false
+    e.poise = 0
+    e.dazeT = 0
+    this.cancelAct(e)
+    e.pileTele = this.teles.circle(e.x, e.z, 0.95, 'gold')
+    this.floatAt(e.x, e.barY * 0.7, e.z, 'STRIKE THE BONES', 'stagger')
+    this.burst(e.x, 0.6, e.z, 0xf4f0e4, 12, 2.2, 0.4)
+  }
+
+  /** A kill on a stunned enemy: the hero drinks. */
+  private feed(e: Actor): void {
+    const hero = this.hero
+    if (hero.dead) return
+    const heal = hero.maxHp * STAGGER.feedHeal
+    hero.hp = Math.min(hero.maxHp, hero.hp + heal)
+    this.floatAt(hero.x, hero.barY * 0.95, hero.z, `+${Math.round(heal)} FEED`, 'heal')
+    this.burst(e.x, e.barY * 0.5, e.z, 0xff1a3a, 18, 2.6, 0.5)
+    for (let i = 0; i < STAGGER.feedFrenzy; i++) this.noteFrenzy()
+    this.feeds++
+  }
+
+  /** Returns whether the hit landed. `src` is who struck, for Vampiric healing. */
+  private damageHero(raw: number, fromBoss: boolean, src: Actor | null = null): boolean {
+    if (this.hero.dead || this.iframe > 0) return false
     const prof = profile(this.save)
     const amount = Math.max(1, mitigate(raw, prof.armor, prof.resist, fromBoss) * prof.guard)
     this.hero.hp -= amount
+    this.hurtTotal += amount
     if (this.hunting()) this.night!.tally.minHp = Math.min(this.night!.tally.minHp, Math.max(0, this.hero.hp) / this.hero.maxHp)
-    this.iframe = 0.42
+    this.iframe = HERO_GUARD.iframe
+    this.sinceHurt = 0
     this.shake = Math.max(this.shake, fromBoss ? 0.28 : 0.12)
     this.sfx.play('hurt')
     this.floatAt(this.hero.x, this.hero.barY * 0.8, this.hero.z, `-${Math.round(amount)}`, 'hurt')
+    if (src && !src.dead && this.has(src, 'vampiric')) {
+      const heal = amount * AFFIX.vampiric.heal
+      src.hp = Math.min(src.maxHp, src.hp + heal)
+      this.floatAt(src.x, src.barY + 0.5, src.z, `+${Math.round(heal)}`, 'heal')
+    }
     if (this.hero.hp <= 0) {
       this.hero.hp = 0
       this.hero.dead = true
       this.hero.deathT = 1.5
       this.hud.toast('You dissolve into mist')
     }
+    return true
   }
 
   private killEnemy(e: Actor): void {
+    const fed = e.stunT > 0 && !e.dummy
     e.dead = true
     e.deathT = 0
     e.hp = 0
     e.respawn = 0
+    e.stunT = 0
+    e.token = false
+    this.cancelAct(e)
+    this.teles.release(e.pileTele)
+    e.pileTele = null
+    if (e.halo) e.halo.visible = false
+    if (e.wardFx) e.wardFx.visible = false
+    if (e.tag) e.tag.style.display = 'none'
     this.sfx.play('kill')
     this.noteFrenzy()
+    if (fed) this.feed(e)
+    if (this.has(e, 'volatile')) {
+      this.addBlast(null, [{ type: 'circle', x: e.x, z: e.z, r: AFFIX.volatile.r, angle: 0, len: 0, width: 0, half: 0 }], AFFIX.volatile.windup, e.dmg * AFFIX.volatile.dmg, false)
+    }
     if (e.kind === 'boss' || e.kind === 'don') {
       const don = e.kind === 'don'
       const map = MAPS[this.district]
@@ -2023,7 +3104,6 @@ export class Game {
       this.rankWeapon(5)
       for (const s of STATS) this.save.stacks[s] += 2
       const levels = grantXp(this.save, bp.xp)
-      this.poundRing.visible = false
       const falls = this.save.bosses[this.district]
       this.hud.banner(`${map.boss.name.toUpperCase()} FALLS`)
       this.hud.toast(falls === 1 ? `${map.label} remembers your name` : `${map.boss.name} falls again (${falls})`)
@@ -2212,12 +3292,50 @@ export class Game {
       e.rig.root.userData.eliteRing = ring
     }
     if (ring) ring.visible = elite
-    if (!elite) return
+    e.affixes = elite ? rollAffixes(this.tier()) : []
+    e.ward = 0
+    if (e.wardFx) e.wardFx.visible = false
+    if (!elite) {
+      if (e.tag) e.tag.style.display = 'none'
+      return
+    }
     e.maxHp = Math.round(e.maxHp * ELITE.hp)
     e.hp = e.maxHp
     e.dmg *= ELITE.dmg
     e.rewardBlood = Math.round(e.rewardBlood * ELITE.blood)
     e.rewardXp = Math.round(e.rewardXp * ELITE.xp)
+    this.dressAffixes(e)
+  }
+
+  /** Shows an elite's modifiers: its ring takes the first one's color, and a tag names them all. */
+  private dressAffixes(e: Actor): void {
+    const first = e.affixes[0]
+    const ring = e.rig.root.userData.eliteRing as THREE.Mesh | undefined
+    if (ring && first) {
+      let mat = this.affixRingMats.get(first)
+      if (!mat) {
+        mat = this.eliteRingMat.clone()
+        mat.color.setHex(AFFIXES[first].color)
+        this.affixRingMats.set(first, mat)
+      }
+      ring.material = mat
+    }
+    const tag = e.tag ?? this.hud.makeTag()
+    e.tag = tag
+    tag.textContent = e.affixes.map((a) => AFFIXES[a].label).join(' · ')
+    tag.style.color = first ? `#${AFFIXES[first].color.toString(16).padStart(6, '0')}` : ''
+    if (this.has(e, 'warded')) {
+      e.ward = e.maxHp * AFFIX.warded.share
+      if (!e.wardFx) {
+        const fx = new THREE.Mesh(this.wardGeo, this.wardMat)
+        e.rig.root.add(fx)
+        e.wardFx = fx
+      }
+      const r = Math.max(0.55, e.radius * 1.6)
+      e.wardFx.scale.set(r, r * 1.4, r)
+      e.wardFx.position.y = (e.barY * 0.5) / Math.max(0.01, e.rig.root.scale.y)
+      e.wardFx.visible = true
+    }
   }
 
   private resetPods(): void {
@@ -2257,6 +3375,10 @@ export class Game {
     this.scene.remove(e.rig.root)
     this.scene.remove(e.contact)
     e.bar.remove()
+    e.tag?.remove()
+    this.cancelAct(e)
+    this.teles.release(e.pileTele)
+    e.pileTele = null
     const at = this.stage.outline.indexOf(e.rig.root)
     if (at >= 0) this.stage.outline.splice(at, 1)
   }
@@ -2269,7 +3391,7 @@ export class Game {
     this.rangeSpot.clear()
     this.boss = null
     this.don = null
-    this.poundRing.visible = false
+    this.clearHazards()
     this.beamTarget = null
     this.beamT = 0
     for (const d of this.drops) {
@@ -3223,9 +4345,6 @@ export class Game {
       struck: false,
       hitFlash: 0,
       flinch: 0,
-      knockT: 0,
-      kx: 0,
-      kz: 0,
       dead: false,
       deathT: 0,
       respawn: 0,
@@ -3243,18 +4362,37 @@ export class Game {
       barT: 0,
       barFlash: 0,
       bar: this.hud.makeBar(kind),
-      pending: null,
-      poundT: 0,
       poundCd: 3,
-      poundX: x,
-      poundZ: z,
-      added: false,
+      phase: 0,
       intro: 0,
       wanderT: 1,
       wanderA: Math.random() * Math.PI * 2,
       contact,
       dummy: false,
       elite: false,
+      affixes: [],
+      tag: null,
+      poise: 0,
+      poiseQuiet: 0,
+      breaks: 0,
+      stunT: 0,
+      dazeT: 0,
+      act: null,
+      sigCd: 1.5 + Math.random() * 2.5,
+      token: false,
+      tokenSwings: 0,
+      waitT: 0,
+      orbit: Math.random() < 0.5 ? -1 : 1,
+      led: false,
+      ward: 0,
+      wardFx: null,
+      pile: 0,
+      pileTele: null,
+      risen: false,
+      blinkCd: 2.5,
+      setT: 0,
+      lift: 0,
+      halo: null,
     }
     if (kind === 'hero') actor.bar.style.display = 'none'
     const customBar = rig.root.userData.barY
@@ -3278,8 +4416,6 @@ export class Game {
       actor.armor = spot.armor
       actor.maxHp = 9999
       actor.hp = actor.maxHp
-      actor.poundX = spot.x
-      actor.poundZ = spot.z
       // Facing east, out across the yard.
       actor.facing = Math.PI / 2
       actor.moving = 0
@@ -3543,16 +4679,15 @@ export class Game {
     return best
   }
 
-  private shootBolt(e: Actor, dmg: number): void {
-    const mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(0.12, 10, 8),
-      new THREE.MeshBasicMaterial({ color: 0xd56bff }),
-    )
-    const dx = this.hero.x - e.x
-    const dz = this.hero.z - e.z
-    const len = Math.hypot(dx, dz) || 1
-    const speed = 6.5
-    const bolt: Bolt = { mesh, x: e.x, y: 1.15, z: e.z, vx: (dx / len) * speed, vz: (dz / len) * speed, life: 1.8, dmg }
+  /** A bolt from an enemy along a unit direction. Spitters aim where the hero stood when the wind-up began. */
+  private shootBolt(e: Actor, dmg: number, dx: number, dz: number, boss: boolean, color: number, speed = 7): void {
+    let mat = this.boltMats.get(color)
+    if (!mat) {
+      mat = new THREE.MeshBasicMaterial({ color })
+      this.boltMats.set(color, mat)
+    }
+    const mesh = new THREE.Mesh(this.boltGeo, mat)
+    const bolt: Bolt = { mesh, x: e.x, y: 1.15, z: e.z, vx: dx * speed, vz: dz * speed, life: 1.8, dmg, boss, src: e }
     mesh.position.set(bolt.x, bolt.y, bolt.z)
     this.scene.add(mesh)
     this.bolts.push(bolt)
@@ -3626,7 +4761,8 @@ export class Game {
   }
 
   private animateActor(actor: Actor, dt: number): void {
-    const swing = actor.kind === 'hero' ? 0 : actor.swingT > 0 ? 1 - actor.swingT / actor.swingDur : 0
+    const swing = actor.kind === 'hero' ? 0 : this.enemyPose(actor)
+    if (actor.kind !== 'hero' && !actor.rig.drive) actor.rig.bob.rotation.set(0, 0, 0)
     const attack = actor.kind === 'hero' && actor.atkT > 0 ? Math.min(1, actor.atkT / actor.swingDur) : 0
     if (actor.kind === 'hero' && !actor.dead) {
       const melee: MeleeState | null =
@@ -3663,9 +4799,33 @@ export class Game {
       actor.rig.bob.rotation.x -= 0.9 * k
       actor.rig.bob.rotation.z += (actor.id % 2 === 0 ? 0.34 : -0.34) * k
     }
+    if (!actor.dead && actor.kind !== 'hero') {
+      const act = actor.act
+      if (act && act.stage === 'wind') {
+        const k = Math.min(1, act.t / Math.max(0.01, act.wind))
+        // Abilities crouch and lean in; plain attacks rear back.
+        if (act.red) {
+          actor.rig.bob.position.y -= 0.12 * k
+          actor.rig.bob.rotation.x += 0.3 * k
+        } else actor.rig.bob.rotation.x -= 0.2 * k
+      }
+      if (actor.stunT > 0) {
+        actor.rig.bob.rotation.x += 0.4
+        actor.rig.bob.rotation.z += Math.sin(this.sessionT * 9 + actor.id) * 0.14
+        if (actor.halo) actor.halo.rotation.z += dt * 5
+      } else if (actor.dazeT > 0) actor.rig.bob.rotation.z += Math.sin(this.sessionT * 7 + actor.id) * 0.1
+    }
     this.flashActor(actor)
     const punch = 1 + actor.hitFlash * 0.7
     if (!actor.dead) actor.rig.bob.scale.setScalar(punch)
+  }
+
+  /** An enemy's arm, 0 to 1: raised through a plain wind-up, then the strike. */
+  private enemyPose(a: Actor): number {
+    const act = a.act
+    if (act && act.stage === 'wind' && (act.move === 'swing' || act.move === 'spit')) return 0.38 * Math.min(1, act.t / Math.max(0.01, act.wind))
+    if (a.swingT > 0) return 0.38 + 0.62 * (1 - a.swingT / a.swingDur)
+    return 0
   }
 
   private flashActor(actor: Actor): void {
@@ -4261,10 +5421,60 @@ export class Game {
             xp: e.rewardXp,
             blood: e.rewardBlood,
             bar: e.barT > 0 && e.hp < e.maxHp - 0.01,
+            id: e.id,
+            poise: +e.poise.toFixed(2),
+            stun: +e.stunT.toFixed(2),
+            act: e.act ? `${e.act.move}:${e.act.stage}` : null,
+            token: e.token,
+            affixes: e.affixes,
+            ward: Math.round(e.ward),
+            pile: +e.pile.toFixed(2),
+            phase: e.phase,
+            elite: e.elite,
           })),
+        feeds: this.feeds,
+        hurt: Math.round(this.hurtTotal),
+        teles: this.enemies.reduce((n, e) => n + (e.act?.shapes.length ?? 0), 0) + this.blasts.reduce((n, b) => n + b.shapes.length, 0),
+        pools: this.pools.length,
       }),
       summon: () => {
         this.summonRival(true)
+      },
+      /** Makes an enemy elite with the given modifiers, for test runs. */
+      elite: (id: number, affixes: Affix[]) => {
+        const e = this.enemies.find((item) => item.id === id)
+        if (!e || e.dead) return
+        if (!e.elite) {
+          e.elite = true
+          e.maxHp = Math.round(e.maxHp * ELITE.hp)
+          e.hp = e.maxHp
+          e.dmg *= ELITE.dmg
+          let ring = e.rig.root.userData.eliteRing as THREE.Mesh | undefined
+          if (!ring) {
+            ring = new THREE.Mesh(this.eliteRingGeo, this.eliteRingMat)
+            ring.rotation.x = -Math.PI / 2
+            ring.position.y = 0.05
+            ring.scale.setScalar(Math.max(0.45, e.radius * 1.45))
+            e.rig.root.add(ring)
+            e.rig.root.userData.eliteRing = ring
+          }
+          e.rig.root.scale.setScalar(ELITE.scale)
+          e.bar.classList.add('elite')
+        }
+        e.affixes = affixes
+        this.dressAffixes(e)
+      },
+      calm: (on = true) => {
+        this.calm = on
+      },
+      heal: () => {
+        this.hero.dead = false
+        this.hero.hp = this.hero.maxHp
+        this.iframe = 0
+      },
+      /** Lets a spawned enemy loose: clears the long intro the spawn hook gives it. */
+      wake: (id?: number) => {
+        for (const e of this.enemies) if (id == null || e.id === id) e.intro = 0
       },
       /** Night test hooks: start one, walk out, jump the clock, end it, or top up a currency. */
       begin: (district: DistrictId, danger = 0) => this.beginNight(district, danger),
@@ -4407,16 +5617,14 @@ export class Game {
           e.x = hero.x + ox
           e.z = hero.z + oz
           e.speed = 0
-          e.knockT = 0
-          e.pending = null
+          this.cancelAct(e)
           this.placeActor(e)
         })
         parked.forEach((e, i) => {
           e.x = -70 - i * 3
           e.z = -70
           e.speed = 0
-          e.knockT = 0
-          e.pending = null
+          this.cancelAct(e)
           this.placeActor(e)
         })
       },

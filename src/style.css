@@ -328,6 +328,11 @@ header {
 .float.vit { color: #ff5a78; font-size: 15px; }
 .float.sor { color: #d58bff; font-size: 15px; }
 .float.all { color: #ffe08a; font-size: 15px; }
+.float.big { font-size: 26px; color: #ffe27a; }
+.float.exposed { font-size: 24px; color: #ffb43a; }
+.float.stagger { font-size: 17px; color: #ffe98a; letter-spacing: 0.12em; text-shadow: 0 2px 0 #3a2408, 0 0 10px rgba(255, 190, 60, 0.85); }
+.float.block { font-size: 15px; color: #c8d0e0; }
+.float.ward { font-size: 16px; color: #8fe4ff; }
 
 .ebar {
   position: absolute;
@@ -390,6 +395,67 @@ header {
 .ebar.boss .fill,
 .ebar.don .fill { background: linear-gradient(#ffe98a, #ff2d3a); }
 .ebar.flash .fill { filter: brightness(1.85); }
+/* Poise: a gold strip along the bottom that fills toward a stagger. */
+.ebar .poise {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  width: 0;
+  z-index: 1;
+  background: #ffd04a;
+  box-shadow: 0 0 4px rgba(255, 208, 74, 0.9);
+}
+.ebar.stunned { border-color: #ffe98a; box-shadow: 0 0 8px rgba(255, 208, 74, 0.9); }
+.ebar.stunned .poise { animation: poise-pulse 0.3s ease-in-out infinite alternate; }
+.ebar.warded { border-color: #6ad8ff; }
+@keyframes poise-pulse { from { opacity: 0.55; } to { opacity: 1; } }
+
+.threat {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.threat::before {
+  content: '';
+  position: absolute;
+  left: -18px;
+  top: -18px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 40, 60, 0.75), rgba(255, 40, 60, 0) 70%);
+  animation: threat-pulse 0.35s ease-in-out infinite alternate;
+}
+.threat::after {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: -9px;
+  border-left: 14px solid #ff3a4a;
+  border-top: 9px solid transparent;
+  border-bottom: 9px solid transparent;
+  filter: drop-shadow(0 0 4px rgba(255, 60, 80, 0.95));
+}
+@keyframes threat-pulse { from { opacity: 0.5; } to { opacity: 1; } }
+
+.etag {
+  position: absolute;
+  left: 0;
+  top: 0;
+  white-space: nowrap;
+  pointer-events: none;
+  font-family: Cinzel, Palatino, serif;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-shadow: 0 1px 2px #000, 0 0 6px rgba(0, 0, 0, 0.9);
+  translate: -50% -100%;
+}
 
 .ebar.boss {
   width: 118px;

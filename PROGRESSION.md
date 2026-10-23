@@ -19,31 +19,33 @@ New endgame loops go on top of that.
 | Milestone | 4.5 nights a day (one 30-minute sitting) |
 | --- | --- |
 | The Mob District opens | day 4 |
-| Kindred tier | day 10 |
-| The Black Docks open | day 18 |
-| The Night Market opens | day 32 |
-| The Blackwood opens | day 42 |
-| Awakened tier | day 50 |
-| Hollow Graves open | day 60 |
-| Ashen Manor opens | day 73 |
-| Cathedral of Dawn opens | day 128 |
-| Ascendent tier | day 130 |
-| The Deep Catacombs open | day 169 |
-| Works maxed | day 177 |
-| The Crimson Spire opens | day 184 |
-| Rites maxed | day 193 |
-| Powers maxed | day 213 |
-| Immortal tier | day 218 |
-| Level 60 | day 221 |
-| **Every map cleared (all 90 marks)** | **day 246, about 8 months** |
-| All gear 50 | day 282 |
-| **Peak** | **day 284, about 9.3 months** |
+| Kindred tier | day 9 |
+| The Black Docks open | day 12 |
+| The Night Market opens | day 25 |
+| The Blackwood opens | day 40 |
+| Awakened tier | day 48 |
+| Hollow Graves open | day 58 |
+| Ashen Manor opens | day 72 |
+| Ascendent tier | day 125 |
+| Cathedral of Dawn opens | day 130 |
+| The Deep Catacombs open | day 172 |
+| Works maxed | day 176 |
+| Rites maxed | day 186 |
+| The Crimson Spire opens | day 188 |
+| Powers maxed | day 206 |
+| Immortal tier | day 208 |
+| Level 60 | day 214 |
+| **Every map cleared (all 90 marks)** | **day 249, about 8.2 months** |
+| All gear 50 | day 267 |
+| **Peak** | **day 270, about 8.9 months** |
 
 | Sitting | Every map cleared | Peak |
 | --- | --- | --- |
-| 4 nights a day | day 275 (about 9 months) | day 315 (about 10.4 months) |
-| 4.5 nights a day | day 246 (about 8 months) | day 284 (about 9.3 months) |
-| 5 nights a day | day 222 (about 7.3 months) | day 257 (about 8.4 months) |
+| 4 nights a day | day 277 (about 9.1 months) | day 300 (about 9.9 months) |
+| 4.5 nights a day | day 249 (about 8.2 months) | day 270 (about 8.9 months) |
+| 5 nights a day | day 224 (about 7.4 months) | day 245 (about 8 months) |
+
+The fight model follows the combat rules in `src/game/combat.ts`: two enemies swing at a time and the rest circle, a swing comes every cooldown plus its wind-up, most plain swings land but most red abilities are stepped out of, a share of the hero's damage lands on staggered enemies, regen waits out the fight while lifesteal and Feeds heal, and deeper pods bring one more of their lead from tier 11 and two from tier 21.
 
 The whole length hangs on one knob, `PACE` in `src/game/pace.ts` (now 1.45). Every pacing cost (XP, gear Blood, tier Ichor, weapon-rank kills, power and rite Vitae, work materials, feeding) is multiplied by it.
 

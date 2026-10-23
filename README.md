@@ -51,6 +51,46 @@ And three materials, carried and banked the same way, for the works and the ward
 
 Elites drop double, and the Rat King and the Don drop a pile of each. Spending happens only at the Haven. A reload mid-night resumes it. Rules and numbers live in `src/game/nights.ts` (the night) and `src/game/haven.ts` (the yard, works, and wardrobe). `?enemies=1` still starts a Slums night at load for test runs.
 
+## Combat
+
+The hero still auto-attacks whatever is in reach, and Dash and the attack work as before. What changed is the other side of the fight (rules in `src/game/combat.ts`, ground markers in `src/game/telegraph.ts`):
+
+- **No knockback. Poise instead.** Hits rock an enemy in place and fill a gold strip under its health bar. A full strip staggers it: it is stunned where it stands (a gold halo), takes 35% more damage, and a kill while it is stunned is a **Feed** that heals 6% of max HP and adds a Frenzy stack. Heavier weapons (the Mace) and Crimson Nova fill the strip fastest. Poise drains back after a breather. Bosses get harder to stagger each time.
+- **Every enemy attack is marked on the ground.** Gold is a plain swing: it tracks you for the first half of its wind-up, then commits, so stepping out of the wedge makes it miss, and staggering the enemy cancels it. Red is an ability: nothing cancels it, so step out of the area. A red mark at the screen's edge points at an ability winding up out of view.
+- **Two at a time.** Only two enemies close in and swing at once. The rest circle you and wait their turn, and still use their abilities. One red ability winds up at a time (two from tier 16), with a short gap between them that narrows down the ladder.
+- **Regen waits out the fight.** Natural regen starts 3.5 s after the last hit taken. Lifesteal, Blood Drain, and Feeds still heal mid-fight.
+
+One ability per enemy:
+
+| Enemy | Ability |
+| --- | --- |
+| Plague Hound | **Flank Lunge**: circles to your side or back (it gives ground when faced), then leaps down a red lane. |
+| Plague Walker | **Bile Retch**: a red cone of bile that leaves a burning green pool. |
+| Feral Thrall | **Pounce**: from range, leaps onto a red ring where you are heading, then stands winded (double poise damage). |
+| Miasma | **Acid Lob**: arcs a glob onto a red ring where you are heading, leaving an acid pool. Its plain attack is a bolt down a gold lane. |
+| Skeleton | **Reassemble**: falls into a bone pile and stands again at half HP unless you strike the pile within 3 s. One that dies staggered stays down. |
+| Mob Thug | **Haymaker Charge**: backs off, then charges down a red lane and stands dazed (double poise damage). |
+| Enforcer | **Bulwark**: his shield takes 75% of hits to his front, and most of their poise. Hit his side or back, or hit him while he swings. |
+
+**Elites** roll one modifier (two from tier 11), named over their health bar, with the ring in the first one's color: Frenzied (faster), Ironhide (hard to stagger, takes 15% less), Volatile (bursts in a red ring on death, from tier 3), Vampiric (heals from its hits, from tier 5), Warded (a ward soaks 35% of its HP and blocks staggers until it breaks, from tier 8), Shadowed (blinks behind you, from tier 11), and Packleader (allies within 6 m hit 25% harder and move faster, from tier 14). Tiers count the ladder's 30 zones from 1, as in `PROGRESSION.md`.
+
+**Bosses** fight in three phases. From the start: a telegraphed swing and the red pound. At 60% HP: they call help and add their own move. At 30%: enraged, faster, and the pound lands three times in a row on wherever you stand.
+
+| Boss | Own move |
+| --- | --- |
+| The Rat King | Leaps for your flank |
+| The Don | Charges down a lane |
+| The Harbormaster | Hurls three anchors where you are heading |
+| The Ringmaster | Throws a fan of five knives |
+| The Alpha | Pounces from range |
+| The Gravelord | Opens five graves around you |
+| The Countess | Steps out of the shadow behind you |
+| The Inquisitor | Calls three bars of dawn across the ground |
+| The Bone Colossus | Slams a long lane of bone |
+| The Elder | Bursts with blood all around |
+
+The Haven's range dummies stagger too, so the yard shows how fast each weapon breaks poise.
+
 ## On a phone
 
 - **Moving:** hold a thumb anywhere on the left of the screen. A faint stick shows where to start, and the stick follows the thumb if it drifts far.
