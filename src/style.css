@@ -151,12 +151,12 @@ header {
   box-shadow: 0 0 6px rgba(255, 40, 60, 0.6);
 }
 
-#btn-gear, #btn-mute, #btn-summon, #offline-claim, #btn-upgrade, #menu-close {
+#btn-gear, #btn-mute, #btn-zoom, #btn-summon, #offline-claim, #btn-upgrade, #menu-close {
   font-family: Cinzel, Palatino, serif;
   letter-spacing: 0.12em;
 }
 
-#btn-gear, #btn-mute {
+#btn-gear, #btn-mute, #btn-zoom {
   width: 40px;
   height: 40px;
   display: grid;
@@ -171,7 +171,7 @@ header {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 3px 0 #0c0e14, 0 6px 12px rgba(0, 0, 0, 0.4);
 }
 
-#btn-gear .ico, #btn-mute .ico { width: 22px; height: 22px; display: block; }
+#btn-gear .ico, #btn-mute .ico, #btn-zoom .ico { width: 22px; height: 22px; display: block; }
 #btn-mute .ico-off { display: none; }
 #btn-mute.is-muted { color: #9aa3b5; border-color: #5e6778; }
 #btn-mute.is-muted .ico-on { display: none; }
@@ -1395,3 +1395,147 @@ footer {
 .district .zone b { font-family: Cinzel, Palatino, serif; color: var(--gold-2); letter-spacing: 0.04em; }
 .district.locked p { margin: 2px 0 4px; }
 .district.locked { padding: 8px 12px; }
+
+/* ---------------------------------------------------------------- Mobile pass */
+
+/* The stick: bigger, brighter, with a pointer toward where the hero walks. */
+#joystick .joy-base {
+  width: 132px;
+  height: 132px;
+  margin: -66px 0 0 -66px;
+  background: radial-gradient(circle, rgba(255, 80, 100, 0.16) 0%, rgba(20, 8, 24, 0.55) 70%);
+  border: 3px solid rgba(255, 214, 140, 0.9);
+  box-shadow: 0 0 18px rgba(255, 60, 90, 0.45), inset 0 0 22px rgba(0, 0, 0, 0.45);
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+#joystick .joy-base.pushed { border-color: #ffe7a4; box-shadow: 0 0 26px rgba(255, 90, 110, 0.75), inset 0 0 22px rgba(0, 0, 0, 0.45); }
+#joystick .joy-knob {
+  width: 58px;
+  height: 58px;
+  margin: -29px 0 0 -29px;
+  background: radial-gradient(circle at 35% 30%, #ffb0b8, #e02a44 45%, #6a0c1c);
+  border: 3px solid #ffe7a4;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.55), 0 0 14px rgba(255, 60, 90, 0.6);
+}
+.joy-arrow {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+.joy-arrow::after {
+  content: '';
+  position: absolute;
+  left: 70px;
+  top: -9px;
+  border-left: 14px solid #ffe7a4;
+  border-top: 9px solid transparent;
+  border-bottom: 9px solid transparent;
+  filter: drop-shadow(0 0 4px rgba(255, 90, 110, 0.9));
+}
+
+/* At rest on a touch screen, a faint stick shows where to put the thumb. */
+#joy-ghost {
+  position: absolute;
+  left: 24%;
+  bottom: calc(196px + var(--safe-b));
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s;
+}
+@media (pointer: coarse) {
+  #joy-ghost { opacity: 0.42; }
+}
+#joy-ghost.away { opacity: 0 !important; }
+#joy-ghost .joy-base {
+  width: 108px;
+  height: 108px;
+  margin: -54px 0 0 -54px;
+  border: 2px dashed rgba(255, 214, 140, 0.75);
+  background: rgba(20, 8, 24, 0.35);
+}
+#joy-ghost .joy-knob { width: 40px; height: 40px; margin: -20px 0 0 -20px; opacity: 0.7; }
+#joy-ghost span {
+  position: absolute;
+  left: 0;
+  top: 64px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-family: Cinzel, Palatino, serif;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: #ffe7c4;
+  text-shadow: 0 1px 3px #000;
+}
+
+/* Every panel that can outgrow the screen scrolls with a finger, and keeps the scroll to itself. */
+#menu, #haven, #night-end, #offline {
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+}
+#menu *, #haven *, #night-end *, #offline * { touch-action: pan-y; }
+
+/* Centered modals start at the top when they are taller than the screen, instead of clipping it. */
+#night-end, #offline {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: calc(16px + var(--safe-t)) 16px calc(20px + var(--safe-b));
+}
+#night-end[hidden], #offline[hidden] { display: none !important; }
+#night-end .modal, #offline .modal { margin: auto 0; }
+
+/* The board keeps its title, close button, and tabs in reach while the list scrolls under them. */
+.haven-panel { position: relative; }
+/* The board's top gap moves from the scroller onto the panel, so the header sticks flush to the screen top. */
+#haven { padding-top: 0; }
+#haven .haven-panel { margin-top: calc(14px + var(--safe-t)); }
+.haven-head {
+  position: sticky;
+  top: var(--safe-t);
+  z-index: 2;
+  margin: -14px -14px 0;
+  padding: 14px 14px 8px;
+  border-radius: 16px 16px 0 0;
+  background: #2a1224;
+  box-shadow: 0 6px 8px -6px rgba(0, 0, 0, 0.7);
+}
+.haven-tabs {
+  position: sticky;
+  top: calc(var(--safe-t) + var(--head-h, 56px));
+  z-index: 2;
+  padding: 6px 0;
+  background: #22101e;
+}
+.haven-head h2 { white-space: nowrap; font-size: clamp(18px, 6vw, 24px); }
+.haven-head .ghost { padding: 9px 14px; font-size: 13px; white-space: nowrap; }
+/* A station's row, scrolled to on opening, lands below the header and tabs. */
+.haven-panel .focus { scroll-margin-top: calc(var(--head-h, 56px) + 110px); }
+
+/* The gear menu's close button stays put while the sheet scrolls. */
+#menu-close { position: fixed; z-index: 8; width: 44px; height: 44px; }
+
+/* Thumb-sized targets. */
+.attr-row button { width: 34px; height: 34px; font-size: 18px; border-radius: 8px; }
+.attr-row { grid-template-columns: 1fr auto 34px; }
+#attr-tab { padding: 6px 12px; font-size: 12px; }
+.pip { min-width: 46px; padding: 9px 0; font-size: 14px; }
+.haven-tabs button { padding: 11px 2px; }
+.shop-row button { min-height: 42px; }
+.look { min-height: 74px; }
+
+/* Short screens (a phone on its side): tighter gear sheet and modals. */
+@media (max-height: 520px) {
+  .sheet { margin-top: 30vh; }
+  .modal { padding: 12px 14px; }
+  #joy-ghost { bottom: calc(150px + var(--safe-b)); }
+}

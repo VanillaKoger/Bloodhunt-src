@@ -10,6 +10,7 @@ import type { LookSlot, WorkId } from './haven'
 const GEAR_ICON = `<svg class="ico" viewBox="0 0 32 32" aria-hidden="true"><path fill="currentColor" d="M16 28.4c-5.4-1.1-9.2-4.6-10-9.2L4.6 11.2C5.2 7.2 8 5.2 11.2 4.8 12.4 7.2 14 8.6 16 8.6s3.6-1.4 4.8-3.8c3.2.4 6 2.4 6.6 6.4l-1.4 8c-.8 4.6-4.6 8.1-10 9.2z"/><path fill="none" stroke="#171b26" stroke-width="1.4" stroke-linecap="round" d="M16 11.2v11"/><path fill="none" stroke="#171b26" stroke-width="1.3" stroke-linecap="round" d="M10.2 20.6h11.6"/></svg>`
 const SOUND_ON = `<svg class="ico ico-on" viewBox="0 0 32 32" aria-hidden="true"><path fill="currentColor" d="M5 12.2h5.1L16 7.4v17.2l-5.9-4.8H5z"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M20.2 12.4a5.2 5.2 0 0 1 0 7.2M23.4 9.4a9.2 9.2 0 0 1 0 13.2"/></svg>`
 const SOUND_OFF = `<svg class="ico ico-off" viewBox="0 0 32 32" aria-hidden="true"><path fill="currentColor" d="M5 12.2h5.1L16 7.4v17.2l-5.9-4.8H5z"/><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" d="M20.2 12.4 27 19.2M27 12.4l-6.8 6.8"/></svg>`
+const ZOOM_ICON = `<svg class="ico" viewBox="0 0 32 32" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M6 12V6h6M26 12V6h-6M6 20v6h6M26 20v6h-6"/><circle cx="16" cy="16" r="3" fill="currentColor"/></svg>`
 const LOCK_ICON = `<svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="16" cy="16" r="2.2" fill="currentColor"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M16 3.5v4.2M16 24.3v4.2M3.5 16h4.2M24.3 16h4.2"/></svg>`
 
 const INSTALL_TIP = 'iPhone: Share, then Add to Home Screen. The hunt stays on this device.'
@@ -128,6 +129,24 @@ const SKILL_LABEL: Record<SkillId, string> = {
   nova: 'Nova',
 }
 
+/** A menu button: acts on a finished tap (click), so a drag that scrolls the panel never presses it. */
+function tap(el: Element, fn: () => void): void {
+  el.addEventListener('click', (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if ((el as HTMLButtonElement).disabled) return
+    fn()
+  })
+}
+
+/** How far the knob travels from the stick's center, in pixels. */
+const JOY_RADIUS = 52
+
+/** Camera distance the player may pick, as a multiple of the screen-fit default. */
+export const ZOOM_MIN = 0.75
+export const ZOOM_MAX = 1.5
+const ZOOM_STEPS = [0.8, 1, 1.25, 1.5]
+
 export class Hud {
   readonly root: HTMLElement
   readonly floatLayer: HTMLElement
@@ -157,6 +176,12 @@ export class Hud {
   onLeaveSummary = (): void => {}
 
   private joy = { active: false, id: -1, ox: 0, oy: 0, x: 0, y: 0 }
+  /** Fingers down on open ground, for the two-finger pinch. */
+  private touches = new Map<number, { x: number; y: number }>()
+  private pinch: { d0: number; z0: number } | null = null
+  /** Camera distance as a multiple of the screen-fit default. Saved with the game. */
+  zoom = 1
+  onZoom: (zoom: number) => void = () => {}
   private keys = new Set<string>()
   private cycleLatch = false
   private cycleWasDown = false
@@ -205,6 +230,7 @@ export class Hud {
               </div>
               <button id="btn-gear" type="button" aria-label="Open gear">${GEAR_ICON}</button>
               <button id="btn-mute" type="button" aria-label="Mute sound" aria-pressed="false">${SOUND_ON}${SOUND_OFF}</button>
+              <button id="btn-zoom" type="button" aria-label="Camera distance">${ZOOM_ICON}</button>
             </div>
           </header>
           <div id="boss-plate" hidden>
@@ -229,7 +255,8 @@ export class Hud {
           <div id="node-tags"></div>
           <button id="btn-lock" type="button" aria-label="Next target">${LOCK_ICON}<span>NEXT</span></button>
           <footer>
-            <div id="joystick" hidden><div class="joy-base"><div class="joy-knob"></div></div></div>
+            <div id="joy-ghost" aria-hidden="true"><div class="joy-base"><div class="joy-knob"></div></div><span>Hold to move</span></div>
+            <div id="joystick" hidden><div class="joy-base"><i class="joy-arrow"></i><div class="joy-knob"></div></div></div>
             <div id="skills"></div>
             <div class="xp-track"><div id="xp-fill"></div></div>
           </footer>
@@ -320,9 +347,7 @@ export class Hud {
     for (const slot of SLOTS) {
       const canvas = parent.querySelector(`#slot-${slot} canvas`) as HTMLCanvasElement
       paintSlot(canvas, slot)
-      parent.querySelector(`#slot-${slot}`)!.addEventListener('pointerdown', (e) => {
-        e.preventDefault()
-        e.stopPropagation()
+      tap(parent.querySelector(`#slot-${slot}`)!, () => {
         this.selected = slot
         this.markSlot()
         this.onSelectSlot(slot)
@@ -344,11 +369,7 @@ export class Hud {
       row.className = 'attr-row'
       row.dataset.attr = attr
       row.innerHTML = `<span>${ATTR_LABEL[attr]} <b>0</b></span><em></em><button type="button" aria-label="Raise ${ATTR_LABEL[attr]}">+</button>`
-      row.querySelector('button')!.addEventListener('pointerdown', (e) => {
-        e.preventDefault()
-        e.stopPropagation()
-        this.onRaise(attr)
-      })
+      tap(row.querySelector('button')!, () => this.onRaise(attr))
       attrRows.appendChild(row)
     }
 
@@ -361,17 +382,11 @@ export class Hud {
       card.dataset.kind = kind
       card.setAttribute('aria-label', `Equip ${w.noun}`)
       card.innerHTML = `<canvas></canvas><small></small><b>${w.noun}</b><em>${ATTR_LABEL[w.mastery]}</em>`
-      card.addEventListener('pointerdown', (e) => {
-        e.preventDefault()
-        e.stopPropagation()
-        this.onEquip(kind)
-      })
+      tap(card, () => this.onEquip(kind))
       armory.appendChild(card)
     }
 
-    parent.querySelector('#attr-tab')!.addEventListener('pointerdown', (e) => {
-      e.preventDefault()
-      e.stopPropagation()
+    tap(parent.querySelector('#attr-tab')!, () => {
       this.attrsOpen = !this.attrsOpen
       ;(parent.querySelector('#stat-rows') as HTMLElement).hidden = this.attrsOpen
       ;(parent.querySelector('#attr-rows') as HTMLElement).hidden = !this.attrsOpen
@@ -387,26 +402,14 @@ export class Hud {
       e.stopPropagation()
       this.onOpenMenu()
     })
-    parent.querySelector('#menu-close')!.addEventListener('pointerdown', (e) => {
-      e.preventDefault()
-      e.stopPropagation()
-      this.onCloseMenu()
-    })
-    parent.querySelector('#btn-upgrade')!.addEventListener('pointerdown', (e) => {
-      e.preventDefault()
-      e.stopPropagation()
-      this.onUpgrade()
-    })
+    tap(parent.querySelector('#menu-close')!, () => this.onCloseMenu())
+    tap(parent.querySelector('#btn-upgrade')!, () => this.onUpgrade())
     parent.querySelector('#btn-summon')!.addEventListener('pointerdown', (e) => {
       e.preventDefault()
       e.stopPropagation()
       this.onSummon()
     })
-    parent.querySelector('#offline-claim')!.addEventListener('pointerdown', (e) => {
-      e.preventDefault()
-      e.stopPropagation()
-      this.onClaim()
-    })
+    tap(parent.querySelector('#offline-claim')!, () => this.onClaim())
     parent.querySelector('#btn-mute')!.addEventListener('pointerdown', (e) => {
       e.preventDefault()
       e.stopPropagation()
@@ -419,10 +422,12 @@ export class Hud {
         fn()
       })
     press('#btn-haven', () => this.onOpenHaven())
-    press('#btn-ascend', () => this.onAscend())
-    press('#btn-abandon', () => this.onAbandon())
-    press('#end-leave', () => this.onLeaveSummary())
-    parent.querySelector('#haven')!.addEventListener('pointerdown', (e) => {
+    press('#btn-zoom', () => this.stepZoom())
+    // Buttons inside scrolling panels act on a tap, never on the touch that starts a scroll.
+    tap(parent.querySelector('#btn-ascend')!, () => this.onAscend())
+    tap(parent.querySelector('#btn-abandon')!, () => this.onAbandon())
+    tap(parent.querySelector('#end-leave')!, () => this.onLeaveSummary())
+    parent.querySelector('#haven')!.addEventListener('click', (e) => {
       const el = (e.target as Element).closest('[data-act]') as HTMLElement | null
       if (!el) return
       e.preventDefault()
@@ -433,6 +438,8 @@ export class Hud {
       if (act === 'tab') {
         this.havenTab = id as typeof this.havenTab
         this.renderHaven()
+        // A new tab starts at its top, not wherever the last one was scrolled.
+        ;(parent.querySelector('#haven') as HTMLElement).scrollTop = 0
       } else if (act === 'danger') {
         this.pick[el.dataset.district as DistrictId] = Number(id)
         this.renderHaven()
@@ -458,6 +465,15 @@ export class Hud {
     window.addEventListener('pointermove', this.onMove)
     window.addEventListener('pointerup', this.onUp)
     window.addEventListener('pointercancel', this.onUp)
+    // Mouse wheel or trackpad: the camera distance, outside the menus.
+    window.addEventListener(
+      'wheel',
+      (e) => {
+        if (this.menuOpen() || this.modalOpen()) return
+        this.setZoom(this.zoom * (1 + Math.max(-0.3, Math.min(0.3, e.deltaY * 0.0015))))
+      },
+      { passive: true },
+    )
     window.addEventListener('keydown', (e) => {
       this.keys.add(e.code)
       if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault()
@@ -745,6 +761,8 @@ export class Hud {
       <div class="haven-body">${body}</div>
       <button type="button" class="haven-gear" data-act="gear">Gear &amp; Weapons</button>
       <p class="haven-foot">${view.extracts} night${view.extracts === 1 ? '' : 's'} survived</p>`
+    // The tabs stick just under the header, however tall it wraps on a narrow screen.
+    panel.style.setProperty('--head-h', `${(panel.querySelector('.haven-head') as HTMLElement).offsetHeight}px`)
     panel.querySelector('.focus')?.scrollIntoView({ block: 'nearest' })
   }
 
@@ -995,9 +1013,35 @@ export class Hud {
     return !!target.closest('button, a, input, #menu, #offline, #summon-wrap, #haven, #night-end')
   }
 
+  /** Sets the camera distance, kept within what the game allows. */
+  setZoom(z: number): void {
+    const next = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z))
+    if (Math.abs(next - this.zoom) < 0.001) return
+    this.zoom = next
+    this.onZoom(next)
+  }
+
+  /** The zoom button: the next preset out, then back to the closest. */
+  private stepZoom(): void {
+    const next = ZOOM_STEPS.find((z) => z > this.zoom + 0.02) ?? ZOOM_STEPS[0]
+    this.setZoom(next)
+    const label = next <= 0.85 ? 'Close' : next <= 1.05 ? 'Normal' : next <= 1.3 ? 'Far' : 'Farthest'
+    this.toast(`View: ${label}`)
+  }
+
   private onDown = (e: PointerEvent): void => {
     if (this.menuOpen() || this.modalOpen()) return
     if (this.blockedTarget(e.target)) return
+    this.touches.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    if (this.touches.size === 2) {
+      // A second finger turns the touch into a pinch: the stick lets go, and no tap fires.
+      const [a, b] = [...this.touches.values()]
+      this.pinch = { d0: Math.max(20, Math.hypot(a.x - b.x, a.y - b.y)), z0: this.zoom }
+      this.endJoy()
+      this.down = null
+      return
+    }
+    if (this.touches.size > 2) return
     const w = window.innerWidth
     const h = window.innerHeight
     if (e.clientY > h - 150) return
@@ -1005,37 +1049,81 @@ export class Hud {
       this.down = { x: e.clientX, y: e.clientY, t: performance.now() }
       return
     }
+    // The stick appears under the thumb, kept fully on screen.
+    const r = JOY_RADIUS + 18
+    const ox = Math.max(r, Math.min(w - r, e.clientX))
+    const oy = Math.max(r, Math.min(h - r, e.clientY))
     this.joy.active = true
     this.joy.id = e.pointerId
-    this.joy.ox = e.clientX
-    this.joy.oy = e.clientY
+    this.joy.ox = ox
+    this.joy.oy = oy
     this.joy.x = 0
     this.joy.y = 0
     this.down = { x: e.clientX, y: e.clientY, t: performance.now() }
     const joy = this.root.querySelector('#joystick') as HTMLElement
     joy.hidden = false
-    const base = joy.querySelector('.joy-base') as HTMLElement
-    base.style.left = `${e.clientX}px`
-    base.style.top = `${e.clientY}px`
-    ;(joy.querySelector('.joy-knob') as HTMLElement).style.transform = 'translate(0px, 0px)'
+    ;(this.root.querySelector('#joy-ghost') as HTMLElement).classList.add('away')
+    this.placeJoy()
+    this.moveKnob(e.clientX - ox, e.clientY - oy)
+  }
+
+  private placeJoy(): void {
+    const base = this.root.querySelector('#joystick .joy-base') as HTMLElement
+    base.style.left = `${this.joy.ox}px`
+    base.style.top = `${this.joy.oy}px`
+  }
+
+  /** Puts the knob at an offset from the stick's center and reads the direction off it. */
+  private moveKnob(dx: number, dy: number): void {
+    const mag = Math.hypot(dx, dy)
+    const clamped = Math.min(mag, JOY_RADIUS)
+    const nx = mag > 0 ? (dx / mag) * clamped : 0
+    const ny = mag > 0 ? (dy / mag) * clamped : 0
+    this.joy.x = nx / JOY_RADIUS
+    this.joy.y = -ny / JOY_RADIUS
+    const base = this.root.querySelector('#joystick .joy-base') as HTMLElement
+    ;(base.querySelector('.joy-knob') as HTMLElement).style.transform = `translate(${nx}px, ${ny}px)`
+    const arrow = base.querySelector('.joy-arrow') as HTMLElement
+    arrow.style.opacity = clamped > 8 ? String(Math.min(1, clamped / JOY_RADIUS + 0.2)) : '0'
+    arrow.style.transform = `rotate(${Math.atan2(ny, nx)}rad)`
+    base.classList.toggle('pushed', clamped > JOY_RADIUS * 0.9)
   }
 
   private onMove = (e: PointerEvent): void => {
+    const held = this.touches.get(e.pointerId)
+    if (held) {
+      held.x = e.clientX
+      held.y = e.clientY
+    }
+    if (this.pinch && this.touches.size >= 2) {
+      const [a, b] = [...this.touches.values()]
+      const d = Math.max(20, Math.hypot(a.x - b.x, a.y - b.y))
+      // Fingers apart brings the camera in; together pushes it out.
+      this.setZoom(this.pinch.z0 * (this.pinch.d0 / d))
+      return
+    }
     if (!this.joy.active || e.pointerId !== this.joy.id) return
-    const dx = e.clientX - this.joy.ox
-    const dy = e.clientY - this.joy.oy
-    const max = 48
-    const mag = Math.hypot(dx, dy) || 1
-    const clamped = Math.min(mag, max)
-    const nx = (dx / mag) * clamped
-    const ny = (dy / mag) * clamped
-    this.joy.x = nx / max
-    this.joy.y = -ny / max
-    const knob = this.root.querySelector('.joy-knob') as HTMLElement
-    knob.style.transform = `translate(${nx}px, ${ny}px)`
+    let dx = e.clientX - this.joy.ox
+    let dy = e.clientY - this.joy.oy
+    const mag = Math.hypot(dx, dy)
+    // Past the rim the stick follows the thumb, so a long drag never loses the hero.
+    if (mag > JOY_RADIUS * 1.35) {
+      const over = mag - JOY_RADIUS
+      this.joy.ox += (dx / mag) * over
+      this.joy.oy += (dy / mag) * over
+      this.placeJoy()
+      dx = e.clientX - this.joy.ox
+      dy = e.clientY - this.joy.oy
+    }
+    this.moveKnob(dx, dy)
   }
 
   private onUp = (e: PointerEvent): void => {
+    this.touches.delete(e.pointerId)
+    if (this.pinch && this.touches.size < 2) {
+      this.pinch = null
+      this.down = null
+    }
     if (this.down && performance.now() - this.down.t < 280) {
       const dist = Math.hypot(e.clientX - this.down.x, e.clientY - this.down.y)
       if (dist < 14 && !this.blockedTarget(e.target)) this.onTap(e.clientX, e.clientY)
@@ -1049,6 +1137,7 @@ export class Hud {
     this.joy.x = 0
     this.joy.y = 0
     ;(this.root.querySelector('#joystick') as HTMLElement).hidden = true
+    ;(this.root.querySelector('#joy-ghost') as HTMLElement).classList.remove('away')
   }
 }
 

@@ -757,6 +757,10 @@ export class Game {
       if (this.night?.over) this.enterHaven()
     }
     this.hud.onMute = () => this.toggleMute()
+    this.hud.zoom = this.save.camZoom
+    this.hud.onZoom = (z) => {
+      this.save.camZoom = z
+    }
     this.hud.onTap = (x, y) => this.onTap(x, y)
     this.hud.showHint(!this.save.seenHint)
 
@@ -840,6 +844,17 @@ export class Game {
     this.renderer.info.autoReset = true
     this.paintedDraws = this.renderer.info.render.calls
     this.paintedTris = this.renderer.info.render.triangles
+  }
+
+  /**
+   * How far the play camera sits, as a multiple of its wide-screen distance.
+   * A portrait phone sees a slice only half as wide, so it pulls back until
+   * the hero sees about 8 m to the sides; the player's zoom multiplies that.
+   */
+  private camScale(): number {
+    const aspect = this.viewW / Math.max(1, this.viewH)
+    const fit = aspect >= 1 ? 1 : Math.min(1.6, 1 + (1 - aspect))
+    return fit * this.hud.zoom
   }
 
   private resize = (): void => {
@@ -1666,10 +1681,12 @@ export class Game {
     } else {
       // Overhead isometric. The offset never changes with facing, speed, or walls,
       // and the hero is the look point, so they stay in the center of the frame.
-      desired.set(hero.x + 6.6, 10.8, hero.z + 6.6)
+      // Its length fits the screen (narrow phones pull back) times the player's own zoom.
+      const s = this.camScale()
+      desired.set(hero.x + 6.6 * s, 10.8 * s, hero.z + 6.6 * s)
       lookTarget.set(hero.x, 0.52, hero.z)
-      this.world.fog.near = 40
-      this.world.fog.far = 52
+      this.world.fog.near = 40 + Math.max(0, s - 1) * 14.3
+      this.world.fog.far = 52 + Math.max(0, s - 1) * 18
     }
     const mapShot = this.debugCam === 'map'
     if (mapShot) {
@@ -1708,6 +1725,16 @@ export class Game {
     }
     const key = this.world.keyLight
     key.position.set(hero.x + 4.2, 9.2, hero.z + 5.4)
+    // The shadow box widens with the view, so a pulled-back camera does not see its edge.
+    const reach = 7 * Math.max(1, this.camScale())
+    const sc = key.shadow.camera
+    if (Math.abs(sc.right - reach) > 0.05) {
+      sc.left = -reach
+      sc.right = reach
+      sc.top = reach
+      sc.bottom = -reach
+      sc.updateProjectionMatrix()
+    }
     key.target.position.set(hero.x, 0.4, hero.z)
     this.camera.position.copy(this.camPos)
     if (!rigid && this.shake > 0) {
@@ -4147,6 +4174,7 @@ export class Game {
         bosses: { ...this.save.bosses },
         mobKills: this.save.mobKills,
         nightZone: this.night?.danger ?? null,
+        camZoom: this.hud.zoom,
         ladder: this.night ? this.tier() : null,
         district: this.district,
         bossAlive: !!(this.boss && !this.boss.dead),

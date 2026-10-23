@@ -51,6 +51,12 @@ And three materials, carried and banked the same way, for the works and the ward
 
 Elites drop double, and the Rat King and the Don drop a pile of each. Spending happens only at the Haven. A reload mid-night resumes it. Rules and numbers live in `src/game/nights.ts` (the night) and `src/game/haven.ts` (the yard, works, and wardrobe). `?enemies=1` still starts a Slums night at load for test runs.
 
+## On a phone
+
+- **Moving:** hold a thumb anywhere on the left of the screen. A faint stick shows where to start, and the stick follows the thumb if it drifts far.
+- **View distance:** pinch, or tap the view button under the mute button (Close / Normal / Far / Farthest). The camera always stays centered on the hero. A tall phone screen starts a little farther out so the sides of the street stay in view. The choice is saved. On desktop the mouse wheel does the same.
+- **Menus:** the Haven board, the gear menu, and the night summary all scroll with a finger. A drag that starts on a button scrolls the menu and never presses the button. The board's title and tabs stay at the top while its list scrolls.
+
 ## The climb
 
 The climb is paced for eight to ten months of one 30-minute sitting a day: every map cleared around month 8, peak power around month 9. Every gain is small. New zones and maps open through marks: several runs in a zone plus two bonus objectives done in a single night, counted only when you get out. `PROGRESSION.md` has the curves, the 30-tier ladder, and the timeline, and `npm run pacing` replays the climb on the current numbers.

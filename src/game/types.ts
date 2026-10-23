@@ -101,6 +101,8 @@ export interface SaveData {
   killRate: number
   lastActiveAt: number
   muted: boolean
+  /** Camera distance the player picked, as a multiple of the screen-fit default. */
+  camZoom: number
   seenHint: boolean
 }
 

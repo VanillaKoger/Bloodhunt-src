@@ -11,7 +11,8 @@ const root: HTMLElement = rootEl
 window.addEventListener(
   'touchmove',
   (e) => {
-    if ((e.target as HTMLElement | null)?.closest?.('input, textarea')) return
+    // Panels that can outgrow the screen keep their own finger scroll.
+    if ((e.target as HTMLElement | null)?.closest?.('input, textarea, #menu, #haven, #night-end, #offline')) return
     e.preventDefault()
   },
   { passive: false },

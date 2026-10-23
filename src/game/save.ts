@@ -31,6 +31,7 @@ export function freshSave(now = Date.now()): SaveData {
     wear: { ...DEFAULT_LOOK },
     marks: {},
     marksV: MARKS_VERSION,
+    camZoom: 1,
     omenDay: '',
     weaponTier: 'teethling',
     powers: { bats: 0, drain: 0, dash: 0, nova: 0 },
@@ -77,6 +78,7 @@ function sanitize(raw: unknown): SaveData | null {
   base.killRate = Math.max(0, num('killRate', 0))
   base.lastActiveAt = num('lastActiveAt', Date.now())
   base.muted = raw.muted === true
+  base.camZoom = Math.max(0.75, Math.min(1.5, num('camZoom', 1)))
   base.seenHint = raw.seenHint === true
   if (isRecord(raw.stacks)) {
     for (const s of STATS) {
