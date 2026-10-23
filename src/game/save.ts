@@ -1,7 +1,8 @@
 import { ATTRS, zeroAttrs } from './attributes'
-import { CLAW_TIERS, OFFLINE_CAP_SEC, OFFLINE_MIN_SEC, grantXp } from './balance'
-import type { OfflineReport, SaveData, Stat, WeaponRank } from './types'
-import { SLOTS, STATS } from './types'
+import { CLAW_TIERS, OFFLINE_CAP_SEC, OFFLINE_MIN_SEC, clawTier, grantXp } from './balance'
+import { DANGERS, DISTRICT_IDS, RITES, RITE_IDS, POWER_MAX, emptyPurse, type Purse } from './nights'
+import type { NightSave, OfflineReport, SaveData, Stat, WeaponRank } from './types'
+import { SKILLS, SLOTS, STATS } from './types'
 import { WEAPON_KINDS, isWeaponKind, type WeaponKind } from './weapons'
 
 const KEY = 'bloodhunt-save-v1'
@@ -17,6 +18,14 @@ export function freshSave(now = Date.now()): SaveData {
   return {
     v: 1,
     blood: 0,
+    ichor: 0,
+    vitae: 0,
+    weaponTier: 'teethling',
+    powers: { bats: 0, drain: 0, dash: 0, nova: 0 },
+    rites: { night: 0, pact: 0, frenzy: 0, scent: 0, thrall: 0 },
+    danger: { slums: 0, mob: 0 },
+    extracts: 0,
+    night: null,
     stacks,
     attrs: zeroAttrs(),
     gear: { weapon: 1, cape: 1, coat: 1, boots: 1 },
@@ -74,6 +83,17 @@ function sanitize(raw: unknown): SaveData | null {
       base.gear[s] = typeof v === 'number' && Number.isFinite(v) ? Math.max(1, Math.min(50, Math.floor(v))) : 1
     }
   }
+  base.ichor = Math.max(0, Math.floor(num('ichor', 0)))
+  base.vitae = Math.max(0, Math.floor(num('vitae', 0)))
+  base.extracts = Math.max(0, Math.floor(num('extracts', 0)))
+  const int = (v: unknown, max: number) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(max, Math.floor(v))) : 0)
+  if (isRecord(raw.powers)) for (const id of SKILLS) base.powers[id] = int(raw.powers[id], POWER_MAX)
+  if (isRecord(raw.rites)) for (const id of RITE_IDS) base.rites[id] = int(raw.rites[id], RITES[id].costs.length)
+  if (isRecord(raw.danger)) for (const id of DISTRICT_IDS) base.danger[id] = int(raw.danger[id], DANGERS.length - 1)
+  // Saves from before Ichor earned their tier from the weapon's level; they keep it.
+  const tier = CLAW_TIERS.find((t) => t.id === raw.weaponTier)
+  base.weaponTier = tier ? tier.id : clawTier(base.gear.weapon).id
+  base.night = readNight(raw.night)
   if (isWeaponKind(raw.weapon)) base.weapon = raw.weapon
   if (isRecord(raw.weaponRanks)) {
     for (const k of WEAPON_KINDS) {
@@ -89,6 +109,22 @@ function sanitize(raw: unknown): SaveData | null {
     for (const s of SLOTS) base.evolved[s] = raw.evolved[s] === true
   }
   return base
+}
+
+function readNight(raw: unknown): NightSave | null {
+  if (!isRecord(raw)) return null
+  const district = DISTRICT_IDS.find((id) => id === raw.district)
+  if (!district) return null
+  const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, v) : 0)
+  const carried: Purse = emptyPurse()
+  if (isRecord(raw.carried)) for (const k of ['blood', 'ichor', 'vitae'] as const) carried[k] = n(raw.carried[k])
+  return {
+    district,
+    danger: Math.min(DANGERS.length - 1, Math.floor(n(raw.danger))),
+    elapsed: n(raw.elapsed),
+    carried,
+    kills: Math.floor(n(raw.kills)),
+  }
 }
 
 export function loadSave(): SaveData {
@@ -129,7 +165,7 @@ export function takeOfflineGains(save: SaveData, now: number): OfflineReport | n
   }
   const capped = elapsed > OFFLINE_CAP_SEC
   const dt = Math.min(OFFLINE_CAP_SEC, elapsed)
-  const feeds = Math.floor(save.killRate * 0.5 * dt)
+  const feeds = Math.floor(save.killRate * 0.5 * dt * (1 + save.rites.thrall * 0.25))
   if (feeds < 1) {
     save.lastActiveAt = now
     return null

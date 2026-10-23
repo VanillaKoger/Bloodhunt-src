@@ -17,11 +17,11 @@ import {
   enemyStats,
   formatNum,
   gearFlat,
-  clawTier,
   feedWeapon,
   gearName,
+  heldTier,
   kingArmor,
-  nextClawTier,
+  nextHeldTier,
   rankKills,
   tierPower,
   weaponRank,
@@ -57,7 +57,41 @@ import {
 } from './models'
 import { loadSave, takeOfflineGains, writeSave } from './save'
 import { Sfx } from './sfx'
-import type { EnemyKind, SaveData, SkillId, Slot } from './types'
+import type { EnemyKind, NightSave, SaveData, SkillId, Slot } from './types'
+import {
+  DANGERS,
+  DAWN_WARN,
+  DISTRICTS,
+  DISTRICT_IDS,
+  ELITE,
+  EXTRACT_CHANNEL,
+  EXTRACT_RADIUS,
+  FRENZY_DRAIN,
+  FRENZY_STEP,
+  FRENZY_WINDOW,
+  POWER_MAX,
+  RITES,
+  RITE_IDS,
+  SKILL_POWER_LABEL,
+  SUNBURN,
+  TIER_ICHOR,
+  bossLoot,
+  eliteChance,
+  eliteIchor,
+  emptyPurse,
+  formatClock,
+  frenzyCap,
+  keepShare,
+  nightLength,
+  nightReward,
+  nightSteps,
+  powerCost,
+  powerScale,
+  type Currency,
+  type DistrictId,
+  type Purse,
+  type RiteId,
+} from './nights'
 import { SKILLS, STATS } from './types'
 import { WEAPONS, WEAPON_KINDS, isWeaponKind, swingTime, weaponName, weaponTraits, type SwingDef, type WeaponKind } from './weapons'
 import type { KenneyLib } from './kenney'
@@ -124,6 +158,8 @@ interface Actor {
   contact: THREE.Mesh
   /** Practice target. Stays put, never attacks, and stands back up 2s after it falls. */
   dummy: boolean
+  /** Rolled at spawn during a night: tougher, bigger, pays triple Blood and drops Ichor. */
+  elite: boolean
 }
 
 interface Spark {
@@ -150,6 +186,36 @@ interface Drop {
   vz: number
   life: number
   value: number
+  kind: Currency
+}
+
+/** A night in progress. Everything picked up is `carried` until the hero extracts. */
+interface NightRun {
+  district: DistrictId
+  danger: number
+  elapsed: number
+  length: number
+  carried: Purse
+  kills: number
+  /** Frenzy stacks, and seconds since the last kill. */
+  frenzy: number
+  sinceKill: number
+  /** Seconds stood at an extract point. */
+  channel: number
+  warned: boolean
+  dawn: boolean
+  /** Set once the night has ended and its summary is up. */
+  over: boolean
+}
+
+interface Beacon {
+  district: DistrictId
+  x: number
+  z: number
+  label: string
+  group: THREE.Group
+  column: THREE.Mesh
+  ring: THREE.Mesh
 }
 
 interface Bolt {
@@ -201,6 +267,15 @@ interface NestRuntime {
 }
 
 const HERO_CLEAR = 2.15
+
+/** The mob district's square at dusk. Thugs and enforcers come back to the pads when they fall. */
+const MOB_OPENING: [Exclude<EnemyKind, 'boss' | 'don'>, number, number][] = [
+  ['thug', 1.15, MOB_Z + 0.35],
+  ['thug', -1.45, MOB_Z - 0.7],
+  ['enforcer', 2.35, MOB_Z + 1.45],
+  ['thug', -2.55, MOB_Z + 1.15],
+  ['enforcer', 0.35, MOB_Z - 2.05],
+]
 
 const GEAR_BLURB: Record<Slot, (lv: number, evolved: boolean) => string> = {
   weapon: (lv, ev) => `+${4 * lv + (ev ? 8 : 0)} Strength · +${lv} Vitality`,
@@ -297,8 +372,26 @@ export class Game {
   private portraitTries = 0
   private weaponIcons = false
   private iconTier: ClawTierId | null = null
-  /** Nests, packs, and the Rat King stay in the data. They only spawn with ?enemies=1. */
+  /** ?enemies=1 starts a Slums night at load (for test runs). Otherwise the game opens at the Haven. */
   private foes = new URLSearchParams(location.search).has('enemies')
+  /** The night in progress, or null at the Haven. */
+  private night: NightRun | null = null
+  private beacons: Beacon[] = []
+  private dropMats!: Record<Currency, THREE.MeshLambertMaterial>
+  private readonly fogBase = new THREE.Color(FOG_COLOR)
+  private readonly dawnFog = new THREE.Color(0x6a2c34)
+  private readonly tmpColor = new THREE.Color()
+  private readonly eliteRingGeo = new THREE.RingGeometry(0.82, 1, 32)
+  private readonly eliteRingMat = new THREE.MeshBasicMaterial({
+    color: 0xffc04a,
+    transparent: true,
+    opacity: 0.85,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  })
+  /** The gear menu was opened from the Haven board, so closing it goes back there. */
+  private backToHaven = false
   /** Scripted walk for the environment tour. Normal play leaves this null. */
   private guide: { x: number; z: number } | null = null
   private guideSpeed = 1.85
@@ -515,6 +608,12 @@ export class Game {
       emissive: 0xff2244,
       emissiveIntensity: 1.7,
     })
+    this.dropMats = {
+      blood: this.bloodMat,
+      ichor: new THREE.MeshLambertMaterial({ color: 0x7a2ad8, emissive: 0xb45cff, emissiveIntensity: 2 }),
+      vitae: new THREE.MeshLambertMaterial({ color: 0xffe2a0, emissive: 0xffc860, emissiveIntensity: 2.2 }),
+    }
+    this.makeBeacons()
 
     for (let i = 0; i < 8; i++) this.bats.push(makeBat())
     for (const b of this.bats) {
@@ -533,45 +632,21 @@ export class Game {
     }
 
     const params = new URLSearchParams(location.search)
-    this.district = DISTRICT_OPEN && params.get('district') === 'mob' ? 'mob' : 'slums'
+    this.district = 'slums'
     if (this.save.bossKills > 0) {
       this.world.gateGlow.emissiveIntensity = 1.7
       this.world.gateGlow.color.setHex(0xff4ad8)
     }
-    this.hud.setDistrict(this.district === 'mob' ? 'THE DISTRICT' : 'THE SLUMS')
+    this.hud.setDistrict('THE SLUMS')
     const prof = profile(this.save)
     const heroRig = kenney ? kenney.hero() : createHero()
-    const start = this.district === 'mob' ? MOB_ARRIVE : HERO_START
+    const start = HERO_START
     this.hero = this.makeActor('hero', heroRig, start.x, start.z, prof.hp, 0.4, 1.95)
     this.applyWeaponLook()
 
-    this.nests = NESTS.map((nest) => ({
-      kind: nest.kind,
-      x: nest.x,
-      z: nest.z,
-      role: nest.role,
-      actor: null,
-      timer: nest.role === 'later' ? GROWTH[nest.kind].return : 0,
-    }))
-    if (this.foes) {
-      this.nests.forEach((nest, index) => {
-        if (nest.role !== 'opening') return
-        nest.actor = this.spawnEnemy(nest.kind, nest.x, nest.z, { nest: index, returns: true })
-      })
-    }
+    this.resetNests()
     this.layDummies()
     this.paintSpawns()
-    if (this.foes && DISTRICT_OPEN) {
-      const district: [Exclude<EnemyKind, 'boss' | 'don'>, number, number][] = [
-        ['thug', 1.15, MOB_Z + 0.35],
-        ['thug', -1.45, MOB_Z - 0.7],
-        ['enforcer', 2.35, MOB_Z + 1.45],
-        ['thug', -2.55, MOB_Z + 1.15],
-        ['enforcer', 0.35, MOB_Z - 2.05],
-      ]
-      for (const [kind, x, z] of district) this.spawnEnemy(kind, x, z)
-      if (params.has('don')) this.summonDon(true)
-    }
 
     this.hud.onSkill = (id) => this.cast(id)
     this.hud.onOpenMenu = () => this.openMenu()
@@ -582,6 +657,16 @@ export class Game {
     this.hud.onEquip = (kind) => this.equip(kind)
     this.hud.onSummon = () => this.trySummon()
     this.hud.onClaim = () => this.claimOffline()
+    this.hud.onOpenHaven = () => this.openHaven()
+    this.hud.onCloseHaven = () => this.hud.showHaven(false)
+    this.hud.onBeginNight = (district, danger) => this.beginNight(district, danger)
+    this.hud.onBuyPower = (id) => this.buyPower(id)
+    this.hud.onBuyRite = (id) => this.buyRite(id)
+    this.hud.onAscend = () => this.ascend()
+    this.hud.onAbandon = () => this.loseNight('fled')
+    this.hud.onLeaveSummary = () => {
+      if (this.night?.over) this.enterHaven()
+    }
     this.hud.onMute = () => this.toggleMute()
     this.hud.onTap = (x, y) => this.onTap(x, y)
     this.hud.showHint(!this.save.seenHint)
@@ -612,6 +697,15 @@ export class Game {
       this.persist()
       this.hud.showOffline(report)
     }
+
+    // A reload mid-night drops the hero back into it. Test runs start one.
+    if (this.save.night) this.beginNight(this.save.night.district, this.save.night.danger, this.save.night)
+    else if (this.foes) {
+      this.beginNight('slums', 0)
+      if (params.has('don') && this.save.bossKills > 0) this.beginNight('mob', 0)
+    } else if (!report) this.openHaven()
+    this.hud.setNightHud(null)
+    this.updateHud()
 
     this.publish(false)
   }
@@ -707,6 +801,7 @@ export class Game {
       }
       this.updateHero(dt, prof)
       this.updateEnemies(dt)
+      this.updateNight(dt)
       this.updateBats(dt, prof)
       this.updateNova(dt, prof)
       this.updateBeam(dt)
@@ -755,6 +850,7 @@ export class Game {
     this.updateSparks(dt)
     this.updateFloats(dt)
     this.updateBars(dt)
+    this.updateBeacons(dt)
     this.updateHud()
     if (this.portraitTries < 8 && this.frames >= 1) this.snapPortrait()
     if (!this.weaponIcons && this.frames >= 1) this.snapWeaponIcons()
@@ -769,6 +865,13 @@ export class Game {
       hero.rig.bob.position.y = -0.3
       hero.rig.bob.scale.setScalar(0.9)
       if (hero.deathT <= 0) {
+        if (this.hunting()) {
+          // A death on the hunt ends the night. The hero wakes at the Haven.
+          hero.deathT = 0
+          this.loseNight(this.night!.dawn ? 'dawn' : 'fell')
+          this.animateActor(hero, dt)
+          return
+        }
         hero.dead = false
         hero.hp = hero.maxHp * 0.65
         this.iframe = 1.3
@@ -794,7 +897,7 @@ export class Game {
         if (e.dead || this.dashHit.has(e.id)) continue
         if (Math.hypot(e.x - hero.x, e.z - hero.z) < 1.05 + e.radius) {
           this.dashHit.add(e.id)
-          this.damageEnemy(e, skillDamage('dash', prof), false)
+          this.damageEnemy(e, skillDamage('dash', prof, this.save.powers.dash), false)
         }
       }
     } else if (move.active) {
@@ -1264,7 +1367,7 @@ export class Game {
     })
     if (this.batTick <= 0) {
       this.batTick = 0.18
-      const dmg = skillDamage('bats', prof)
+      const dmg = skillDamage('bats', prof, this.save.powers.bats)
       for (const e of this.enemies) {
         if (e.dead) continue
         if (Math.hypot(e.x - this.hero.x, e.z - this.hero.z) < this.batR + e.radius) this.damageEnemy(e, dmg, false)
@@ -1285,7 +1388,7 @@ export class Game {
     ;(this.novaRing.material as THREE.MeshBasicMaterial).opacity = 0.9 * (1 - k)
     if (!this.novaHit && k > 0.18) {
       this.novaHit = true
-      const dmg = skillDamage('nova', prof)
+      const dmg = skillDamage('nova', prof, this.save.powers.nova)
       for (const e of this.enemies) {
         if (e.dead) continue
         if (Math.hypot(e.x - this.hero.x, e.z - this.hero.z) < 4.3 + e.radius) this.damageEnemy(e, dmg, false)
@@ -1352,7 +1455,8 @@ export class Game {
       }
       d.mesh.position.set(d.x, d.y, d.z)
       if (dist < 0.55 || d.life > 4.8) {
-        this.save.blood += d.value
+        this.credit(d.kind, d.value)
+        if (d.kind !== 'blood') this.floatAt(this.hero.x, this.hero.barY + 0.2, this.hero.z, `+${Math.round(d.value)} ${d.kind === 'ichor' ? 'Ichor' : 'Vitae'}`, d.kind)
         this.sfx.play('pickup')
         d.mesh.visible = false
         this.dropPool.push(d.mesh)
@@ -1391,7 +1495,7 @@ export class Game {
         node.group.userData.ready = ready
         setNodeVisual(node, ready)
       }
-      if (!ready || this.paused() || this.hero.dead) {
+      if (!ready || this.paused() || this.hero.dead || !this.hunting()) {
         node.group.userData.channel = 0
         continue
       }
@@ -1622,7 +1726,9 @@ export class Game {
       const channel = (node.group.userData.channel as number) || 0
       let text: string = NODE[id].label
       let prog = 0
-      if (!ready) {
+      if (!this.hunting()) {
+        text = 'Opens at nightfall'
+      } else if (!ready) {
         const left = Math.max(0, ((node.group.userData.readyAt as number) - now) / 1000)
         text = `${Math.ceil(left)}s`
       } else if (channel > 0) {
@@ -1635,26 +1741,42 @@ export class Game {
 
   private updateHud(): void {
     this.hud.setHp(this.hero.maxHp > 0 ? this.hero.hp / this.hero.maxHp : 0)
-    this.hud.setBlood(this.save.blood)
+    const night = this.night
+    this.hud.setPurse(night ? night.carried : { blood: this.save.blood, ichor: this.save.ichor, vitae: this.save.vitae }, !!night)
+    this.hud.setHavenButton(!night)
     this.hud.setLevel(this.save.level, this.save.xp / xpNeed(this.save.level))
     for (const id of SKILLS) this.hud.setSkill(id, this.cooldowns[id], this.cdMax[id])
     const boss = this.localBoss()
     this.hud.setBoss(!!boss, boss ? boss.hp / boss.maxHp : 0, boss?.kind === 'don' ? 'THE DON' : 'RAT KING')
     const playing = this.mode === 'play' && !this.hud.modalOpen()
     if (this.district === 'mob') {
-      const canSummon = this.foes && !boss && this.donCd <= 0 && this.save.mobKills >= 10 && playing
+      const canSummon = this.hunting() && !boss && this.donCd <= 0 && this.save.mobKills >= 10 && playing
       this.hud.setSummon(
         canSummon,
         this.save.donKills > 0 ? 'The Don wants a rematch.' : 'The Don is waiting in the club.',
         this.save.donKills > 0 ? 'Face him again' : 'Knock on the club',
       )
     } else {
-      const canSummon = this.foes && !boss && this.summonCd <= 0 && this.save.kills >= 10 && playing
+      const canSummon = this.hunting() && !boss && this.summonCd <= 0 && this.save.kills >= 10 && playing
       this.hud.setSummon(
         canSummon,
         this.save.bossKills > 0 ? 'Something fat stirs under the crypt again.' : 'The Rat King is awake under the crypt.',
         this.save.bossKills > 0 ? 'Face him again' : 'Call him out',
       )
+    }
+    if (night && !night.over) {
+      const left = night.length - night.elapsed
+      this.hud.setNightHud({
+        clock: night.dawn ? 'DAWN' : formatClock(left),
+        warn: night.dawn || left <= DAWN_WARN,
+        frenzy: this.frenzyMult(),
+        frenzyFill: night.frenzy / frenzyCap(this.save.rites.frenzy),
+        danger: DANGERS[night.danger].label,
+      })
+      this.placeExtractMarker()
+    } else {
+      this.hud.setNightHud(null)
+      this.hud.setExtract(0, 0, false, false, 0, '', 0, 0)
     }
     if (this.mode === 'menu') this.refreshMenu()
   }
@@ -1664,7 +1786,7 @@ export class Game {
     if (this.cooldowns[id] > 0) return
     this.sfx.unlock()
     const prof = profile(this.save)
-    const max = SKILL_META[id].cd * prof.cdScale
+    const max = SKILL_META[id].cd * prof.cdScale * powerScale(this.save.powers[id]).cd
     this.sfx.play('skill')
     this.skillsFired++
     if (id === 'bats') {
@@ -1723,7 +1845,7 @@ export class Game {
     this.cdMax.drain = max
     this.beamT = 0.34
     this.beamTarget = target
-    const dealt = this.damageEnemy(target, skillDamage('drain', prof), false)
+    const dealt = this.damageEnemy(target, skillDamage('drain', prof, this.save.powers.drain), false)
     const heal = dealt * 0.55
     this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + heal)
     this.floatAt(this.hero.x, this.hero.barY * 0.74, this.hero.z, `+${Math.round(heal)}`, 'heal')
@@ -1819,10 +1941,12 @@ export class Game {
       if (nest) nest.timer = GROWTH[nest.kind].return
     }
     this.sfx.play('kill')
+    this.noteFrenzy()
     if (e.kind === 'boss' || e.kind === 'don') {
       const don = e.kind === 'don'
-      const bp = don ? donBlueprint(this.save) : bossBlueprint(this.save)
-      const blood = Math.round(bp.blood * profile(this.save).bloodMult)
+      const bp = don ? donBlueprint(this.save, this.steps()) : bossBlueprint(this.save, this.steps())
+      const blood = Math.round(bp.blood * profile(this.save).bloodMult * this.nightPay() * this.frenzyMult())
+      const loot = bossLoot(don ? 'don' : 'boss', this.night?.danger ?? 0)
       if (don) {
         this.save.donKills += 1
         this.don = null
@@ -1835,8 +1959,8 @@ export class Game {
         this.world.gateGlow.color.setHex(0xff4ad8)
       }
       this.save.kills += 1
+      if (this.night) this.night.kills += 1
       this.rankWeapon(5)
-      this.save.blood += blood
       for (const s of STATS) this.save.stacks[s] += 2
       const levels = grantXp(this.save, bp.xp)
       this.poundRing.visible = false
@@ -1853,6 +1977,9 @@ export class Game {
       this.floatAt(e.x, 2.2, e.z, `+${blood} Blood`, 'blood')
       this.floatAt(e.x, 1.7, e.z, '+2 all', 'all')
       this.spawnDrops(e.x, e.z, blood)
+      this.spawnDrops(e.x, e.z, loot.ichor, 'ichor')
+      this.spawnDrops(e.x, e.z, loot.vitae, 'vitae')
+      if (!don && this.save.bossKills === 1) this.hud.toast('The way to the Mob District opens at the Haven')
       if (levels) this.onLevel(levels)
       this.noteKill()
       this.persist()
@@ -1861,8 +1988,9 @@ export class Game {
     if (e.kind === 'hero') return
     const def = ENEMIES[e.kind]
     const xp = e.rewardXp || def.xp
-    const blood = Math.round((e.rewardBlood || def.blood) * profile(this.save).bloodMult)
+    const blood = Math.round((e.rewardBlood || def.blood) * profile(this.save).bloodMult * this.nightPay() * this.frenzyMult())
     this.save.kills += 1
+    if (this.night) this.night.kills += 1
     this.rankWeapon(1)
     if (e.kind === 'thug' || e.kind === 'enforcer') this.save.mobKills += 1
     this.save.stacks[def.stat] += 1
@@ -1870,6 +1998,11 @@ export class Game {
     this.floatAt(e.x, e.barY, e.z, `+1 ${def.statLabel}`, def.stat === 'strength' ? 'str' : def.stat === 'agility' ? 'agi' : def.stat === 'vitality' ? 'vit' : 'sor')
     this.floatAt(e.x, 0.4, e.z, `+${blood}`, 'blood')
     this.spawnDrops(e.x, e.z, blood)
+    if (e.elite) {
+      const ichor = eliteIchor(this.night?.danger ?? 0)
+      this.spawnDrops(e.x, e.z, ichor, 'ichor')
+      this.floatAt(e.x, e.barY + 0.4, e.z, `+${ichor} Ichor`, 'ichor')
+    }
     this.burst(e.x, 0.8, e.z, new THREE.Color(FEED_COLOR[def.stat]).getHex(), 6, 1.8, 0.4)
     if (levels) this.onLevel(levels)
     this.noteKill()
@@ -1899,18 +2032,21 @@ export class Game {
     }
   }
 
-  private spawnDrops(x: number, z: number, blood: number): void {
-    const n = Math.max(1, Math.min(8, blood))
-    const each = blood / n
-    for (let i = 0; i < n; i++) this.drops.push(this.makeDrop(x, z, each))
+  private spawnDrops(x: number, z: number, amount: number, kind: Currency = 'blood'): void {
+    if (amount <= 0) return
+    const n = Math.max(1, Math.min(8, Math.ceil(amount)))
+    const each = amount / n
+    for (let i = 0; i < n; i++) this.drops.push(this.makeDrop(x, z, each, kind))
   }
 
-  private makeDrop(x: number, z: number, value: number): Drop {
+  private makeDrop(x: number, z: number, value: number, kind: Currency): Drop {
     let mesh = this.dropPool.pop()
     if (!mesh) {
       mesh = new THREE.Mesh(new THREE.SphereGeometry(0.075, 10, 8), this.bloodMat)
       this.scene.add(mesh)
     }
+    mesh.material = this.dropMats[kind]
+    mesh.scale.setScalar(kind === 'blood' ? 1 : 1.5)
     mesh.visible = true
     const a = Math.random() * Math.PI * 2
     return {
@@ -1923,13 +2059,15 @@ export class Game {
       vz: Math.sin(a) * (0.6 + Math.random() * 0.5),
       life: 0,
       value,
+      kind,
     }
   }
 
   private harvest(id: 'crypt' | 'fountain'): void {
+    if (!this.hunting()) return
     const node = this.world.nodes[id]
     const spec = NODE[id]
-    this.save.blood += spec.blood
+    this.credit('blood', spec.blood)
     this.nodeBlood += spec.blood
     node.group.userData.readyAt = performance.now() + spec.respawn * 1000
     node.group.userData.ready = false
@@ -1939,6 +2077,501 @@ export class Game {
     this.floatAt(node.x, 1.4, node.z, `+${spec.blood}`, 'blood')
     this.burst(node.x, 0.8, node.z, id === 'crypt' ? 0xc46bff : 0xff2244, 12, 2.5, 0.45)
     this.hud.toast(`${spec.label} yields ${spec.blood} Blood`)
+  }
+
+  /** True while a night runs: not at the Haven, and not on the end-of-night summary. */
+  private hunting(): boolean {
+    return !!this.night && !this.night.over
+  }
+
+  /** Enemy growth steps right now, from the night's district, danger, and clock. The Haven's targets sit at zero. */
+  private steps(): number {
+    const night = this.night
+    return night ? nightSteps(night.district, night.danger, night.elapsed) : 0
+  }
+
+  /** Blood multiplier from the night's district and danger. */
+  private nightPay(): number {
+    const night = this.night
+    return night ? nightReward(night.district, night.danger) : 1
+  }
+
+  private frenzyMult(): number {
+    return 1 + (this.night?.frenzy ?? 0) * FRENZY_STEP
+  }
+
+  private noteFrenzy(): void {
+    const night = this.night
+    if (!night || night.over) return
+    night.frenzy = Math.min(frenzyCap(this.save.rites.frenzy), night.frenzy + 1)
+    night.sinceKill = 0
+  }
+
+  /** Pickups go into the night's carried purse. Outside a night they bank at once. */
+  private credit(kind: Currency, amount: number): void {
+    if (this.hunting()) this.night!.carried[kind] += amount
+    else this.save[kind] += Math.round(amount)
+  }
+
+  /** Rolls a night spawn (or a nest's return) as an elite. Elites are bigger, tougher, and pay Ichor. */
+  private rollElite(e: Actor): void {
+    const night = this.night
+    const elite = !!night && !night.over && !e.dummy && Math.random() < eliteChance(night.danger, this.save.rites.scent)
+    e.elite = elite
+    e.rig.root.scale.setScalar(elite ? ELITE.scale : 1)
+    e.bar.classList.toggle('elite', elite)
+    let ring = e.rig.root.userData.eliteRing as THREE.Mesh | undefined
+    if (elite && !ring) {
+      ring = new THREE.Mesh(this.eliteRingGeo, this.eliteRingMat)
+      ring.rotation.x = -Math.PI / 2
+      ring.position.y = 0.05
+      ring.scale.setScalar(Math.max(0.45, e.radius * 1.45))
+      e.rig.root.add(ring)
+      e.rig.root.userData.eliteRing = ring
+    }
+    if (ring) ring.visible = elite
+    if (!elite) return
+    e.maxHp = Math.round(e.maxHp * ELITE.hp)
+    e.hp = e.maxHp
+    e.dmg *= ELITE.dmg
+    e.rewardBlood = Math.round(e.rewardBlood * ELITE.blood)
+    e.rewardXp = Math.round(e.rewardXp * ELITE.xp)
+  }
+
+  private resetNests(): void {
+    this.nests = NESTS.map((nest) => ({
+      kind: nest.kind,
+      x: nest.x,
+      z: nest.z,
+      role: nest.role,
+      actor: null,
+      timer: nest.role === 'later' ? GROWTH[nest.kind].return : 0,
+    }))
+  }
+
+  /** Takes an actor out of the scene for good: its rig, ground shadow, and health bar. */
+  private removeActor(e: Actor): void {
+    this.scene.remove(e.rig.root)
+    this.scene.remove(e.contact)
+    e.bar.remove()
+    const at = this.stage.outline.indexOf(e.rig.root)
+    if (at >= 0) this.stage.outline.splice(at, 1)
+  }
+
+  /** Empties the field between the Haven and a night: every enemy and target, drops, bolts, and boss state. */
+  private clearField(): void {
+    for (const e of this.enemies) this.removeActor(e)
+    this.enemies = []
+    this.boss = null
+    this.don = null
+    this.poundRing.visible = false
+    this.beamTarget = null
+    this.beamT = 0
+    for (const d of this.drops) {
+      d.mesh.visible = false
+      this.dropPool.push(d.mesh)
+    }
+    this.drops = []
+    for (const b of this.bolts) this.scene.remove(b.mesh)
+    this.bolts = []
+    for (const nest of this.nests) nest.actor = null
+    this.lockId = null
+    this.aimId = null
+  }
+
+  /** Puts the hero on a spot whole: alive, full HP, and the camera already there instead of sweeping across the map. */
+  private placeHero(x: number, z: number): void {
+    const hero = this.hero
+    hero.x = x
+    hero.z = z
+    hero.dead = false
+    hero.deathT = 0
+    hero.atkT = 0
+    hero.rig.bob.scale.setScalar(1)
+    hero.rig.bob.position.set(0, 0, 0)
+    hero.maxHp = profile(this.save).hp
+    hero.hp = hero.maxHp
+    this.iframe = 1.2
+    this.dashT = 0
+    this.guide = null
+    this.placeActor(hero)
+    this.camPos.set(x, 6, z + 4)
+    this.look.set(x, 1, z)
+  }
+
+  /** Dusk: the hero leaves the Haven for a district at a danger, or picks a saved night back up. */
+  private beginNight(district: DistrictId, danger: number, resume?: NightSave): void {
+    if (district === 'mob' && this.save.bossKills < 1) {
+      this.hud.toast(DISTRICTS.mob.lockText)
+      return
+    }
+    danger = Math.max(0, Math.min(danger, this.save.danger[district]))
+    this.hud.showHaven(false)
+    this.hud.showSummary(null)
+    this.backToHaven = false
+    if (this.mode === 'menu') this.closeMenu()
+    this.clearField()
+    this.district = district
+    this.night = {
+      district,
+      danger,
+      elapsed: resume?.elapsed ?? 0,
+      length: nightLength(this.save.rites.night),
+      carried: resume ? { ...resume.carried } : emptyPurse(),
+      kills: resume?.kills ?? 0,
+      frenzy: 0,
+      sinceKill: FRENZY_WINDOW,
+      channel: 0,
+      warned: false,
+      dawn: false,
+      over: false,
+    }
+    const def = DISTRICTS[district]
+    this.placeHero(def.start.x, def.start.z)
+    if (district === 'slums') {
+      this.resetNests()
+      this.nests.forEach((nest, index) => {
+        if (nest.role !== 'opening') return
+        nest.actor = this.spawnEnemy(nest.kind, nest.x, nest.z, { nest: index, returns: true })
+      })
+    } else {
+      for (const [kind, x, z] of MOB_OPENING) this.spawnEnemy(kind, x, z)
+    }
+    const label = def.label.toUpperCase()
+    this.hud.setDistrict(label)
+    this.hud.banner(label)
+    this.hud.toast(resume ? 'The night goes on' : `Danger ${DANGERS[danger].label}. Reach a way out before dawn.`)
+    this.sfx.play('boss')
+    this.persist()
+  }
+
+  private updateNight(dt: number): void {
+    const night = this.night
+    if (!night || night.over) return
+    night.elapsed += dt
+    night.sinceKill += dt
+    if (night.sinceKill > FRENZY_WINDOW) night.frenzy = Math.max(0, night.frenzy - FRENZY_DRAIN * dt)
+    const left = night.length - night.elapsed
+    if (!night.warned && left <= DAWN_WARN) {
+      night.warned = true
+      this.hud.banner('DAWN APPROACHES')
+      this.hud.toast('One minute to dawn. Reach a way out.')
+    }
+    if (!night.dawn && left <= 0) {
+      night.dawn = true
+      this.hud.banner('DAWN')
+      this.hud.toast('The sun is up, and it burns')
+    }
+    if (night.dawn && !this.hero.dead) {
+      this.hero.hp -= this.hero.maxHp * SUNBURN * dt
+      if (this.hero.hp <= 0) {
+        this.hero.hp = 0
+        this.hero.dead = true
+        this.hero.deathT = 1.5
+        this.hud.toast('The sun takes you')
+      }
+    }
+    this.tintDawn()
+    const out = this.nearestExtract()
+    if (out && out.d <= EXTRACT_RADIUS && !this.hero.dead) {
+      if (night.channel === 0) this.hud.toast(`${out.beacon.label}. Stay to leave with the haul.`)
+      night.channel += dt
+      if (night.channel >= EXTRACT_CHANNEL) this.extractNight()
+    } else night.channel = Math.max(0, night.channel - dt * 2)
+  }
+
+  /** The fog warms toward red over the last minute and through the dawn. */
+  private tintDawn(): void {
+    const night = this.night
+    let k = 0
+    if (night && !night.over) {
+      const into = (night.elapsed - (night.length - DAWN_WARN)) / DAWN_WARN
+      k = Math.max(0, Math.min(1, into)) * 0.55 + (night.dawn ? 0.45 : 0)
+    }
+    const color = this.tmpColor.copy(this.fogBase).lerp(this.dawnFog, k)
+    this.world.fog.color.copy(color)
+    if (this.scene.background instanceof THREE.Color) this.scene.background.copy(color)
+    this.renderer.setClearColor(color)
+  }
+
+  private nearestExtract(): { beacon: Beacon; d: number } | null {
+    let best: { beacon: Beacon; d: number } | null = null
+    for (const beacon of this.beacons) {
+      if (beacon.district !== this.district) continue
+      const d = Math.hypot(beacon.x - this.hero.x, beacon.z - this.hero.z)
+      if (!best || d < best.d) best = { beacon, d }
+    }
+    return best
+  }
+
+  private extractNight(): void {
+    const night = this.night
+    if (!night || night.over) return
+    const bonus = DANGERS[night.danger].vitae
+    const got: Purse = {
+      blood: Math.round(night.carried.blood),
+      ichor: Math.round(night.carried.ichor),
+      vitae: Math.round(night.carried.vitae) + bonus,
+    }
+    this.save.blood += got.blood
+    this.save.ichor += got.ichor
+    this.save.vitae += got.vitae
+    this.save.extracts += 1
+    let unlock: string | null = null
+    if (night.danger === this.save.danger[night.district] && night.danger < DANGERS.length - 1) {
+      this.save.danger[night.district] = night.danger + 1
+      unlock = `Danger ${DANGERS[night.danger + 1].label} opens in ${DISTRICTS[night.district].label}`
+    }
+    this.burst(this.hero.x, 1, this.hero.z, 0x9fe0ff, 24, 3, 0.7)
+    this.finishNight('extracted', got, emptyPurse(), bonus, unlock)
+  }
+
+  /** The night ends without extracting: a death, the dawn, or giving up. The Blood Pact keeps a share. */
+  private loseNight(why: 'fell' | 'dawn' | 'fled'): void {
+    const night = this.night
+    if (!night || night.over) return
+    if (this.mode === 'menu') this.closeMenu()
+    const keep = keepShare(this.save.rites.pact)
+    const got = emptyPurse()
+    const lost = emptyPurse()
+    for (const k of ['blood', 'ichor', 'vitae'] as const) {
+      got[k] = Math.floor(night.carried[k] * keep)
+      lost[k] = Math.max(0, Math.round(night.carried[k]) - got[k])
+      this.save[k] += got[k]
+    }
+    this.finishNight(why, got, lost, 0, null)
+  }
+
+  private finishNight(outcome: 'extracted' | 'fell' | 'dawn' | 'fled', banked: Purse, lost: Purse, bonusVitae: number, unlock: string | null): void {
+    const night = this.night!
+    night.over = true
+    night.channel = 0
+    this.hud.setNightHud(null)
+    this.hud.showSummary({
+      outcome,
+      district: DISTRICTS[night.district].label,
+      danger: DANGERS[night.danger].label,
+      banked,
+      lost,
+      bonusVitae,
+      keep: Math.round(keepShare(this.save.rites.pact) * 100),
+      kills: night.kills,
+      time: formatClock(night.elapsed),
+      unlock,
+    })
+    this.sfx.play(outcome === 'extracted' ? 'level' : 'hurt')
+    this.persist()
+  }
+
+  /** Back to the Haven: the yard and its practice targets, the hero whole, and the board open. */
+  private enterHaven(): void {
+    this.hud.showSummary(null)
+    this.night = null
+    this.clearField()
+    this.resetNests()
+    this.layDummies()
+    this.district = 'slums'
+    this.placeHero(HERO_START.x, HERO_START.z)
+    this.hud.setDistrict('THE SLUMS')
+    this.tintDawn()
+    this.persist()
+    this.openHaven()
+  }
+
+  private openHaven(): void {
+    if (this.hunting()) {
+      this.hud.toast('The Haven waits until you extract')
+      return
+    }
+    if (this.mode === 'menu') this.closeMenu()
+    this.refreshHaven()
+    this.hud.showHaven(true)
+  }
+
+  private refreshHaven(): void {
+    const save = this.save
+    this.hud.setHaven({
+      purse: { blood: save.blood, ichor: save.ichor, vitae: save.vitae },
+      night: formatClock(nightLength(save.rites.night)),
+      keep: Math.round(keepShare(save.rites.pact) * 100),
+      extracts: save.extracts,
+      districts: DISTRICT_IDS.map((id) => ({
+        id,
+        label: DISTRICTS[id].label,
+        blurb: DISTRICTS[id].blurb,
+        locked: id === 'mob' && save.bossKills < 1,
+        lockText: DISTRICTS[id].lockText,
+        dangers: DANGERS.map((d, i) => ({ label: d.label, reward: nightReward(id, i), unlocked: i <= save.danger[id] })),
+        best: save.danger[id],
+      })),
+      powers: SKILLS.map((id) => {
+        const rank = save.powers[id]
+        const cost = rank < POWER_MAX ? powerCost(rank) : 0
+        const at = powerScale(rank)
+        return {
+          id,
+          label: SKILL_POWER_LABEL[id],
+          rank,
+          max: POWER_MAX,
+          effect: `+${Math.round((at.dmg - 1) * 100)}% damage · −${Math.round((1 - at.cd) * 100)}% cooldown`,
+          cost,
+          canBuy: rank < POWER_MAX && save.vitae >= cost,
+        }
+      }),
+      rites: RITE_IDS.map((id) => {
+        const def = RITES[id]
+        const rank = save.rites[id]
+        const max = def.costs.length
+        const cost = rank < max ? def.costs[rank] : 0
+        return {
+          id,
+          label: def.label,
+          rank,
+          max,
+          effect: def.effect(rank),
+          next: rank < max ? def.effect(rank + 1) : '',
+          cost,
+          canBuy: rank < max && save.vitae >= cost,
+        }
+      }),
+    })
+  }
+
+  private buyPower(id: SkillId): void {
+    if (this.night) return
+    const rank = this.save.powers[id]
+    const cost = powerCost(rank)
+    if (rank >= POWER_MAX || this.save.vitae < cost) {
+      this.sfx.play('click')
+      return
+    }
+    this.save.vitae -= cost
+    this.save.powers[id] = rank + 1
+    this.sfx.play('upgrade')
+    this.hud.toast(`${SKILL_POWER_LABEL[id]} rises to rank ${rank + 1}`)
+    this.persist()
+    this.refreshHaven()
+  }
+
+  private buyRite(id: RiteId): void {
+    if (this.night) return
+    const def = RITES[id]
+    const rank = this.save.rites[id]
+    const cost = def.costs[rank]
+    if (rank >= def.costs.length || this.save.vitae < cost) {
+      this.sfx.play('click')
+      return
+    }
+    this.save.vitae -= cost
+    this.save.rites[id] = rank + 1
+    this.sfx.play('upgrade')
+    this.hud.toast(`${def.label}: ${def.effect(rank + 1)}`)
+    this.persist()
+    this.refreshHaven()
+  }
+
+  /** Ichor buys the next weapon tier, once the weapon's level has reached it. Ranks start over in the new tier. */
+  private ascend(): void {
+    const next = nextHeldTier(this.save)
+    if (!next) return
+    if (this.night) {
+      this.hud.toast('Ichor is spent at the Haven')
+      this.sfx.play('click')
+      return
+    }
+    const cost = TIER_ICHOR[next.id]
+    if (this.save.gear.weapon < next.from || this.save.ichor < cost) {
+      this.hud.toast(this.save.gear.weapon < next.from ? `${next.label} needs weapon Lv. ${next.from}` : 'Not enough Ichor')
+      this.sfx.play('click')
+      return
+    }
+    this.save.ichor -= cost
+    this.save.weaponTier = next.id
+    this.applyWeaponLook()
+    this.portraitTries = 0
+    this.syncVitals(profile(this.save))
+    this.sfx.play('upgrade')
+    this.hud.toast(`${weaponName(this.save.weapon, next)} · ${next.ranks} ranks to earn`)
+    this.burst(this.hero.x, 1.0, this.hero.z, next.color, 18, 2.6, 0.6)
+    this.shake = Math.max(this.shake, 0.22)
+    this.persist()
+    this.refreshMenu()
+  }
+
+  private makeBeacons(): void {
+    const ringGeo = new THREE.RingGeometry(EXTRACT_RADIUS - 0.16, EXTRACT_RADIUS, 40)
+    const columnGeo = new THREE.CylinderGeometry(0.45, 0.7, 10, 18, 1, true)
+    for (const id of DISTRICT_IDS) {
+      for (const point of DISTRICTS[id].extracts) {
+        const group = new THREE.Group()
+        group.position.set(point.x, 0, point.z)
+        const ring = new THREE.Mesh(
+          ringGeo,
+          new THREE.MeshBasicMaterial({ color: 0x9fe0ff, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }),
+        )
+        ring.rotation.x = -Math.PI / 2
+        ring.position.y = 0.06
+        const column = new THREE.Mesh(
+          columnGeo,
+          new THREE.MeshBasicMaterial({ color: 0x7cc8ff, transparent: true, opacity: 0.2, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }),
+        )
+        column.position.y = 5
+        group.add(ring, column)
+        group.visible = false
+        this.scene.add(group)
+        this.beacons.push({ district: id, x: point.x, z: point.z, label: point.label, group, column, ring })
+      }
+    }
+  }
+
+  /** Way-out columns show only on a night in their district; the one being stood in burns brighter. */
+  private updateBeacons(dt: number): void {
+    const night = this.night
+    const live = !!night && !night.over
+    const out = live ? this.nearestExtract() : null
+    const pulse = 0.5 + 0.5 * Math.sin(this.sessionT * 3)
+    for (const beacon of this.beacons) {
+      beacon.group.visible = live && beacon.district === this.district
+      if (!beacon.group.visible) continue
+      const on = out?.beacon === beacon && night!.channel > 0
+      ;(beacon.column.material as THREE.MeshBasicMaterial).opacity = (on ? 0.4 : 0.16) + pulse * 0.08
+      ;(beacon.ring.material as THREE.MeshBasicMaterial).opacity = on ? 1 : 0.55 + pulse * 0.3
+      beacon.ring.rotation.z += dt * (on ? 2.4 : 0.6)
+    }
+  }
+
+  /** Points the HUD at the nearest way out: on it when it is on screen, from the screen edge when it is not. */
+  private placeExtractMarker(): void {
+    const night = this.night!
+    const out = this.nearestExtract()
+    if (!out) {
+      this.hud.setExtract(0, 0, false, false, 0, '', 0, 0)
+      return
+    }
+    const p = this.project(out.beacon.x, 1.4, out.beacon.z)
+    const pad = 36
+    const inside = p.vis && p.x > pad && p.x < this.viewW - pad && p.y > pad + 70 && p.y < this.viewH - 150
+    const progress = night.channel / EXTRACT_CHANNEL
+    if (inside) {
+      this.hud.setExtract(p.x, p.y, true, false, 0, out.beacon.label, out.d, progress)
+      return
+    }
+    // Off screen: run a ray from the screen center toward the point and stop at a margin.
+    const cx = this.viewW / 2
+    const cy = this.viewH / 2
+    let dx = p.x - cx
+    let dy = p.y - cy
+    if (!p.vis) {
+      dx = -dx
+      dy = -dy
+    }
+    const len = Math.hypot(dx, dy) || 1
+    const ux = dx / len
+    const uy = dy / len
+    const halfW = this.viewW / 2 - pad
+    const halfH = this.viewH / 2 - 110
+    const t = Math.min(Math.abs(ux) > 1e-4 ? halfW / Math.abs(ux) : Infinity, Math.abs(uy) > 1e-4 ? halfH / Math.abs(uy) : Infinity)
+    this.hud.setExtract(cx + ux * t, cy + uy * t, true, true, Math.atan2(uy, ux), out.beacon.label, out.d, progress)
   }
 
   private onTap(cx: number, cy: number): void {
@@ -1954,6 +2587,10 @@ export class Game {
         const id = obj.userData.nodeId as 'crypt' | 'fountain' | undefined
         if (id) {
           const node = this.world.nodes[id]
+          if (!this.hunting()) {
+            this.hud.toast('It opens at nightfall')
+            return
+          }
           if (!node.group.userData.ready) return
           if (Math.hypot(this.hero.x - node.x, this.hero.z - node.z) > 1.75) {
             this.hud.toast('Step closer')
@@ -1968,16 +2605,16 @@ export class Game {
   }
 
   private trySummon(): void {
-    if (!this.foes) return
+    if (!this.hunting()) return
     if (this.district === 'mob') this.summonDon()
     else this.summonKing()
   }
 
   private summonKing(force = false): void {
-    if (!this.foes) return
+    if (!this.hunting() || this.district !== 'slums') return
     if (this.boss && !this.boss.dead) return
     if (!force && (this.paused() || this.summonCd > 0 || this.save.kills < 10)) return
-    const bp = bossBlueprint(this.save)
+    const bp = bossBlueprint(this.save, this.steps())
     const spot = this.kingSpot()
     const boss = this.makeActor('boss', this.kenney ? this.kenney.boss() : createBoss(), spot.x, spot.z, bp.hp, 0.78, 2.45)
     boss.armor = kingArmor(this.save.bossKills)
@@ -1996,10 +2633,10 @@ export class Game {
   }
 
   private summonDon(force = false): void {
-    if (!this.foes) return
+    if (!this.hunting() || this.district !== 'mob') return
     if (!force && (this.paused() || this.don || this.donCd > 0 || this.save.mobKills < 10)) return
     if (this.don && !this.don.dead) return
-    const bp = donBlueprint(this.save)
+    const bp = donBlueprint(this.save, this.steps())
     const spot = this.ahead()
     const don = this.makeActor('don', this.kenney ? this.kenney.don() : createDon(), spot.x, spot.z, bp.hp, 0.82, 2.55)
     don.armor = kingArmor(this.save.donKills)
@@ -2024,6 +2661,11 @@ export class Game {
   }
 
   private openMenu(): void {
+    // The board's Gear button opens the menu over the Haven, and closing it comes back.
+    if (this.hud.havenOpen()) {
+      this.hud.showHaven(false)
+      this.backToHaven = true
+    }
     if (this.hud.modalOpen()) return
     if (this.mode === 'menu') return
     this.mode = 'menu'
@@ -2045,6 +2687,10 @@ export class Game {
       if (!e.dead) e.rig.root.visible = true
     }
     for (const d of this.drops) d.mesh.visible = true
+    if (this.backToHaven) {
+      this.backToHaven = false
+      if (!this.night) this.openHaven()
+    }
   }
 
   private refreshMenu(): void {
@@ -2058,8 +2704,8 @@ export class Game {
     const lv = this.save.gear[slot]
     const maxed = lv >= MAX_GEAR
     const cost = upgradeCost(lv)
-    const tier = clawTier(this.save.gear.weapon)
-    const next = nextClawTier(this.save.gear.weapon)
+    const tier = heldTier(this.save)
+    const next = nextHeldTier(this.save)
     const held = weaponRank(this.save, this.save.weapon)
     const power = tierPower(tier, held.rank)
     const tierBonus = ` · ×${power.toFixed(2)} dmg${tier.crit > 0 ? ` · +${Math.round(tier.crit * 100)}% crit` : ''}`
@@ -2068,18 +2714,26 @@ export class Game {
       lv,
       GEAR_BLURB[slot](lv, this.save.evolved[slot]) + (slot === 'weapon' ? tierBonus : ''),
       cost,
-      !maxed && this.save.blood >= cost,
+      !maxed && this.save.blood >= cost && !this.night,
       maxed,
     )
+    this.hud.setSpendLock(this.hunting(), Math.round(keepShare(this.save.rites.pact) * 100))
     const rankLine =
       held.rank >= tier.ranks
         ? `Rank ${held.rank}/${tier.ranks} · Mastered`
         : `Rank ${held.rank}/${tier.ranks} · ${held.kills}/${rankKills(tier, held.rank)} kills`
-    this.hud.setClawTier(
-      slot === 'weapon' ? tier : null,
-      `${rankLine} · ${next ? `${next.label} at Lv. ${next.from}` : 'Highest tier'}`,
-      tier.css,
-    )
+    this.hud.setClawTier(slot === 'weapon' ? tier : null, rankLine, tier.css)
+    if (slot === 'weapon' && next) {
+      const ichor = TIER_ICHOR[next.id]
+      const ready = this.save.gear.weapon >= next.from
+      this.hud.setAscend({
+        label: next.label,
+        css: next.css,
+        cost: ichor,
+        need: ready ? '' : `Needs weapon Lv. ${next.from}`,
+        canBuy: ready && this.save.ichor >= ichor && !this.night,
+      })
+    } else this.hud.setAscend(null)
     const labels = Object.fromEntries(
       WEAPON_KINDS.map((kind) => [kind, `${tier.label} · R${weaponRank(this.save, kind).rank}`]),
     ) as Record<WeaponKind, string>
@@ -2091,11 +2745,11 @@ export class Game {
 
   /** Gear name for a slot; the weapon's follows its tier and the equipped class. */
   private slotName(slot: Slot, lv: number): string {
-    return slot === 'weapon' ? weaponName(this.save.weapon, clawTier(lv)) : gearName(slot, lv)
+    return slot === 'weapon' ? weaponName(this.save.weapon, heldTier(this.save)) : gearName(slot, lv)
   }
 
   private applyWeaponLook(): void {
-    const tier = clawTier(this.save.gear.weapon)
+    const tier = heldTier(this.save)
     equipWeapon(this.hero.rig, this.save.weapon, tier.id)
     // The item cards show this tier's models, so a tier change redraws them on the next frame.
     if (this.iconTier !== tier.id) {
@@ -2103,7 +2757,7 @@ export class Game {
       this.weaponIcons = false
     }
     const rankFrac = weaponRank(this.save, this.save.weapon).rank / tier.ranks
-    applyGearVisual(this.hero.rig, this.save.gear.weapon, this.save.gear.cape, this.save.evolved.weapon, this.save.evolved.cape, rankFrac)
+    applyGearVisual(this.hero.rig, this.save.gear.weapon, tier.id, this.save.gear.cape, this.save.evolved.weapon, this.save.evolved.cape, rankFrac)
     const hue = new THREE.Color(tier.color)
     ;(this.trail.material as THREE.MeshBasicMaterial).color.copy(hue).lerp(new THREE.Color(0xffffff), 0.35)
     ;(this.slash.material as THREE.SpriteMaterial).color.copy(hue)
@@ -2115,6 +2769,11 @@ export class Game {
     const slot = this.hud.selected
     const lv = this.save.gear[slot]
     if (lv >= MAX_GEAR) return
+    if (this.night) {
+      this.hud.toast('Blood is spent at the Haven')
+      this.sfx.play('click')
+      return
+    }
     const cost = upgradeCost(lv)
     if (this.save.blood < cost) {
       this.hud.toast('Not enough Blood')
@@ -2125,16 +2784,12 @@ export class Game {
     this.save.gear[slot] = lv + 1
     const evolvedNow = lv + 1 >= 10 && !this.save.evolved[slot]
     if (evolvedNow) this.save.evolved[slot] = true
-    const tierUp = slot === 'weapon' && clawTier(lv + 1).id !== clawTier(lv).id
     this.applyWeaponLook()
     this.sfx.play('upgrade')
     const name = this.slotName(slot, lv + 1)
-    if (tierUp) {
-      const tier = clawTier(lv + 1)
-      this.hud.toast(`${weaponName(this.save.weapon, tier)} · ${tier.ranks} ranks to earn`)
-      this.burst(this.hero.x, 1.0, this.hero.z, tier.color, 18, 2.6, 0.6)
-      this.shake = Math.max(this.shake, 0.22)
-    } else this.hud.toast(evolvedNow ? `${name} awakened` : `${name} sharpened`)
+    const next = nextHeldTier(this.save)
+    if (slot === 'weapon' && next && lv + 1 === next.from) this.hud.toast(`${name} can ascend to ${next.label} with Ichor`)
+    else this.hud.toast(evolvedNow ? `${name} awakened` : `${name} sharpened`)
     this.syncVitals(profile(this.save))
     this.persist()
     this.refreshMenu()
@@ -2144,7 +2799,7 @@ export class Game {
   private rankWeapon(kills: number): void {
     const gained = feedWeapon(this.save, kills)
     if (gained <= 0) return
-    const tier = clawTier(this.save.gear.weapon)
+    const tier = heldTier(this.save)
     const held = weaponRank(this.save, this.save.weapon)
     this.applyWeaponLook()
     this.syncVitals(profile(this.save))
@@ -2163,7 +2818,7 @@ export class Game {
     this.applyWeaponLook()
     this.portraitTries = 0
     this.sfx.play('upgrade')
-    this.hud.toast(`${weaponName(kind, clawTier(this.save.gear.weapon))} equipped`)
+    this.hud.toast(`${weaponName(kind, heldTier(this.save))} equipped`)
     this.syncVitals(profile(this.save))
     this.persist()
     this.refreshMenu()
@@ -2188,6 +2843,7 @@ export class Game {
     this.hero.maxHp = prof.hp
     this.hero.hp = prof.hp
     this.sfx.play('level')
+    if (!this.night) this.openHaven()
   }
 
   private toggleMute(): void {
@@ -2269,6 +2925,7 @@ export class Game {
       wanderA: Math.random() * Math.PI * 2,
       contact,
       dummy: false,
+      elite: false,
     }
     if (kind === 'hero') actor.bar.style.display = 'none'
     const customBar = rig.root.userData.barY
@@ -2319,7 +2976,7 @@ export class Game {
                 ? createEnforcer()
                 : createWitch()
     const def = ENEMIES[kind]
-    const stats = enemyStats(kind, this.save)
+    const stats = enemyStats(kind, this.steps())
     const actor = this.makeActor(kind, rig, x, z, stats.hp, def.radius, def.barY)
     actor.dmg = stats.dmg
     actor.speed = stats.speed
@@ -2328,13 +2985,14 @@ export class Game {
     actor.rewardBlood = stats.blood
     actor.nest = opts?.nest ?? -1
     actor.returns = opts?.returns ?? (kind === 'thug' || kind === 'enforcer')
+    this.rollElite(actor)
     this.enemies.push(actor)
     return actor
   }
 
   private revive(e: Actor, x: number, z: number): void {
     if (e.kind === 'hero' || e.kind === 'boss' || e.kind === 'don') return
-    const stats = enemyStats(e.kind, this.save)
+    const stats = enemyStats(e.kind, this.steps())
     e.x = x
     e.z = z
     e.dead = false
@@ -2354,11 +3012,12 @@ export class Game {
     e.rig.root.visible = true
     e.rig.bob.scale.set(1, 1, 1)
     e.rig.bob.position.y = 0
+    this.rollElite(e)
     this.placeActor(e)
   }
 
   private tickNests(dt: number): void {
-    if (!this.foes) return
+    if (!this.hunting() || this.district !== 'slums') return
     for (const nest of this.nests) {
       if (nest.role === 'alt') continue
       const actor = nest.actor
@@ -2481,7 +3140,7 @@ export class Game {
   }
 
   private rivalBlueprint(kind: 'boss' | 'don') {
-    return kind === 'don' ? donBlueprint(this.save) : bossBlueprint(this.save)
+    return kind === 'don' ? donBlueprint(this.save, this.steps()) : bossBlueprint(this.save, this.steps())
   }
 
   private clampArena(x: number, z: number): { x: number; z: number } {
@@ -2503,7 +3162,7 @@ export class Game {
       if (Math.hypot(this.hero.x - SLUM_GATE.x, this.hero.z - SLUM_GATE.z) > 1.45) return
       if (this.gateNag <= 0) {
         this.gateNag = 3.4
-        this.hud.toast('The district gate is barred')
+        this.hud.toast('The gate is barred. Choose the district at the Haven.')
       }
       return
     }
@@ -2938,7 +3597,7 @@ export class Game {
     this.weaponIcons = true
     const all = this.hero.rig.root.userData.weapons as WeaponSet | undefined
     if (!all) return
-    const tier = clawTier(this.save.gear.weapon)
+    const tier = heldTier(this.save)
     const size = 128
     const target = new THREE.WebGLRenderTarget(size, size)
     target.texture.colorSpace = THREE.SRGBColorSpace
@@ -3083,6 +3742,11 @@ export class Game {
   }
 
   private persist(): void {
+    const night = this.night
+    this.save.night =
+      night && !night.over
+        ? { district: night.district, danger: night.danger, elapsed: night.elapsed, carried: { ...night.carried }, kills: night.kills }
+        : null
     writeSave(this.save)
   }
 
@@ -3162,7 +3826,31 @@ export class Game {
         evolved: { ...this.save.evolved },
         weapon: this.save.weapon,
         weaponRank: weaponRank(this.save, this.save.weapon),
-        tier: clawTier(this.save.gear.weapon).id,
+        purse: { blood: this.save.blood, ichor: this.save.ichor, vitae: this.save.vitae },
+        weaponTier: this.save.weaponTier,
+        powers: { ...this.save.powers },
+        rites: { ...this.save.rites },
+        unlocked: { ...this.save.danger },
+        extracts: this.save.extracts,
+        night: this.night
+          ? {
+              district: this.night.district,
+              danger: this.night.danger,
+              elapsed: +this.night.elapsed.toFixed(2),
+              length: this.night.length,
+              carried: { ...this.night.carried },
+              kills: this.night.kills,
+              frenzy: +this.night.frenzy.toFixed(2),
+              channel: +this.night.channel.toFixed(2),
+              dawn: this.night.dawn,
+              over: this.night.over,
+              elites: this.enemies.filter((e) => e.elite && !e.dead).length,
+              steps: +this.steps().toFixed(2),
+            }
+          : null,
+        haven: this.hud.havenOpen(),
+        summary: this.hud.summaryOpen(),
+        tier: heldTier(this.save).id,
         level: this.save.level,
         xp: this.save.xp,
         bossKills: this.save.bossKills,
@@ -3258,6 +3946,26 @@ export class Game {
       summon: () => {
         this.summonKing(true)
       },
+      /** Night test hooks: start one, walk out, jump the clock, end it, or top up a currency. */
+      begin: (district: DistrictId, danger = 0) => this.beginNight(district, danger),
+      toExtract: () => {
+        const out = this.nearestExtract()
+        if (out) this.placeHero(out.beacon.x, out.beacon.z)
+      },
+      skipTo: (elapsed: number) => {
+        if (this.night) this.night.elapsed = elapsed
+      },
+      abandon: () => this.loseNight('fled'),
+      haven: () => {
+        if (!this.hunting()) this.enterHaven()
+      },
+      give: (kind: Currency, n: number) => {
+        this.save[kind] += n
+        if (this.hud.havenOpen()) this.refreshHaven()
+      },
+      buyPower: (id: SkillId) => this.buyPower(id),
+      buyRite: (id: RiteId) => this.buyRite(id),
+      ascend: () => this.ascend(),
       equip: (kind: WeaponKind) => {
         if (isWeaponKind(kind)) this.equip(kind)
       },

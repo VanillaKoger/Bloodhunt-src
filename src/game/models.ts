@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
-import { CLAW_TIERS, clawTier, nextClawTier, type ClawTierId } from './balance'
+import { CLAW_TIERS, type ClawTierId } from './balance'
 import type { WeaponKind } from './weapons'
 
 export interface KenneyAnimState {
@@ -779,9 +779,9 @@ function tierMaterial(id: ClawTierId): THREE.MeshLambertMaterial {
   return new THREE.MeshLambertMaterial({ color, emissive: shape.base, emissiveIntensity: shape.glow })
 }
 
-/** Swap the hero's claw mesh to the tier for this weapon level. Other rigs keep their base claws. */
-function applyClawTier(rig: Rig, weaponLv: number): void {
-  const tier = clawTier(weaponLv)
+/** Swap the hero's claw mesh to the owned tier. Other rigs keep their base claws. */
+function applyClawTier(rig: Rig, tierId: ClawTierId): void {
+  const tier = CLAW_TIERS.find((t) => t.id === tierId) ?? CLAW_TIERS[0]
   for (const hand of rig.claws) {
     const spec = hand.userData.clawSpec as ClawSpec | undefined
     if (!spec) continue
@@ -823,16 +823,26 @@ export function equipWeapon(rig: Rig, kind: WeaponKind, tier: ClawTierId): void 
   rig.mats.claw = weapons[kind][tier].mat
 }
 
-export function applyGearVisual(rig: Rig, weaponLv: number, capeLv: number, evolvedWeapon: boolean, evolvedCape: boolean, rankFrac = 0): void {
-  applyClawTier(rig, weaponLv)
+/** `tierId` is the owned weapon tier; the weapon level grows the mesh within it. */
+export function applyGearVisual(
+  rig: Rig,
+  weaponLv: number,
+  tierId: ClawTierId,
+  capeLv: number,
+  evolvedWeapon: boolean,
+  evolvedCape: boolean,
+  rankFrac = 0,
+): void {
+  applyClawTier(rig, tierId)
   const tiered = rig.root.userData.clawTier != null && rig.claws.some((hand) => hand.userData.clawSpec)
   const kay = Boolean(rig.root.userData.kayFist)
-  const tier = clawTier(weaponLv)
-  const next = nextClawTier(weaponLv)
+  const at = Math.max(0, CLAW_TIERS.findIndex((t) => t.id === tierId))
+  const tier = CLAW_TIERS[at]
+  const next = CLAW_TIERS[at + 1] ?? null
   if (rig.mats.claw) {
     if (tiered || kay) {
       const span = next ? Math.max(1, next.from - tier.from) : 10
-      const into = Math.max(rankFrac, Math.min(1, (weaponLv - tier.from) / span))
+      const into = Math.max(rankFrac, Math.min(1, Math.max(0, weaponLv - tier.from) / span))
       if (kay && !tiered) {
         // The tier color is baked into the model's material; the rank only brightens it.
         rig.mats.claw.emissiveIntensity = (rig.mats.claw.userData.glow ?? 1) * (1 + into * 0.6)
@@ -847,7 +857,7 @@ export function applyGearVisual(rig: Rig, weaponLv: number, capeLv: number, evol
     }
   }
   const grow = tiered || kay
-    ? 1 + Math.min(0.14, ((weaponLv - tier.from) / Math.max(1, (next?.from ?? tier.from + 10) - tier.from)) * 0.14)
+    ? 1 + Math.min(0.14, (Math.max(0, weaponLv - tier.from) / Math.max(1, (next?.from ?? tier.from + 10) - tier.from)) * 0.14)
     : 1 + Math.min(0.45, (weaponLv - 1) * 0.012) + (evolvedWeapon ? 0.18 : 0)
   for (const c of rig.claws) c.scale.setScalar(grow)
   if (rig.mats.cape && evolvedCape) rig.mats.cape.color.set(0xc41a3a)

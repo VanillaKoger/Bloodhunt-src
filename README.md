@@ -23,3 +23,15 @@ KayKit Character Animations 1.1 (FREE / CC0) — Rig_Medium sets:
 - License copies: `public/cc0/kaykit/licenses/KayKit-Character-Animations.txt`
 
 Kenney Animated Characters / Mixamo / Quaternius character-anim libraries were searched on disk and not vendored (see `animations/NOTES.txt`).
+
+## The hunt loop
+
+The game opens at the Haven. From there the hero picks a district (the Slums, or the Mob District once the Rat King has fallen) and a danger (I–V; extracting at one opens the next). A night lasts 5:00 before dawn. Everything picked up is carried, and only banks by standing in a way out (a pillar of light; the HUD marker points to the nearest) until it fills. Falling, abandoning, or being caught by the sun keeps 25% of the haul (more with the Blood Pact rite). Killing quickly builds Frenzy, a Blood multiplier.
+
+Three currencies, each for one side of the hero:
+
+- **Blood** (every kill): gear levels, in the Gear menu.
+- **Ichor** (elites and bosses): weapon tiers, the Ascend button on the weapon slot. Each tier also needs the weapon level it starts at.
+- **Vitae** (extracting, and bosses): blood powers (skill damage and cooldown) and Haven rites (longer nights, Blood Pact, Frenzy cap, elite chance, offline thralls).
+
+Spending happens only at the Haven. A reload mid-night resumes it. Rules and numbers live in `src/game/nights.ts`. `?enemies=1` still starts a Slums night at load for test runs.

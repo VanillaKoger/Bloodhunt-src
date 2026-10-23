@@ -15,7 +15,7 @@ import {
   barrierFit,
   cornerPier,
   COMMON_WALL_H,
-  DISTRICT_OPEN,
+  MOB_ARENA,
   PERIMETER_SCALE,
   MOB_BLOCKS,
   MOB_CARS,
@@ -32,7 +32,7 @@ import {
  * The hero is the KayKit Adventurers mage, recoloured as a chunky vampire,
  * with the shared Rig_Medium chop. Ghouls are the KayKit skeleton minion.
  * Slum walls are the eight KayKit City Builder Bits shells, one mesh each.
- * The mob district dress stays behind DISTRICT_OPEN.
+ * The mob district dress follows MOB_ARENA.
  */
 
 export interface KenneyLib {
@@ -1832,7 +1832,7 @@ export async function loadKenney(): Promise<KenneyLib> {
   return {
     dress: (scene, blocks) => {
       dressAlley(scene, blocks, props)
-      if (DISTRICT_OPEN) dressMob(scene, props)
+      if (MOB_ARENA) dressMob(scene, props)
       driftCity = dressCity(scene, props, (key, x, z, yaw, w, h, d) => {
         const parent = new THREE.Matrix4().makeRotationY(yaw)
         parent.setPosition(x, 0, z)

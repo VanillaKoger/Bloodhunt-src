@@ -3,6 +3,7 @@ import type { EnemyKind, SaveData, SkillId, Slot, Stat, WeaponRank } from './typ
 import { NORTH_ALLEY_SHIFT } from './world'
 import { SLOTS } from './types'
 import { WEAPONS, weaponInterval, type WeaponKind } from './weapons'
+import { powerScale } from './nights'
 
 export const BASE_STAT: Record<Stat, number> = {
   strength: 8,
@@ -349,6 +350,17 @@ export function nextClawTier(level: number): ClawTier | null {
   return CLAW_TIERS.find((t) => t.from > level) ?? null
 }
 
+/** The weapon tier the hero owns. Tiers are bought with Ichor at the Haven. */
+export function heldTier(save: SaveData): ClawTier {
+  return CLAW_TIERS.find((t) => t.id === save.weaponTier) ?? CLAW_TIERS[0]
+}
+
+/** The tier after the one owned, or null at Immortal. */
+export function nextHeldTier(save: SaveData): ClawTier | null {
+  const at = CLAW_TIERS.indexOf(heldTier(save))
+  return CLAW_TIERS[at + 1] ?? null
+}
+
 /** Kills to go from `rank` to `rank + 1` inside a tier. */
 export function rankKills(tier: ClawTier, rank: number): number {
   return Math.round(tier.kills * (1 + rank * 0.5))
@@ -356,7 +368,7 @@ export function rankKills(tier: ClawTier, rank: number): number {
 
 /** A weapon's rank in the current tier. A rank earned in an older tier reads as a fresh start. */
 export function weaponRank(save: SaveData, kind: WeaponKind): WeaponRank {
-  const tier = clawTier(save.gear.weapon)
+  const tier = heldTier(save)
   const held = save.weaponRanks[kind]
   if (held.tier !== tier.id) return { tier: tier.id, rank: 0, kills: 0 }
   return { tier: tier.id, rank: Math.min(tier.ranks, held.rank), kills: held.kills }
@@ -373,7 +385,7 @@ export function tierPower(tier: ClawTier, rank: number): number {
  * Returns the ranks gained.
  */
 export function feedWeapon(save: SaveData, kills: number): number {
-  const tier = clawTier(save.gear.weapon)
+  const tier = heldTier(save)
   const held = weaponRank(save, save.weapon)
   let gained = 0
   held.kills += kills
@@ -457,7 +469,7 @@ export function profile(save: SaveData): CombatProfile {
   const fort = combatStat(save, 'fortitude')
   const res = combatStat(save, 'resistance')
   const w = WEAPONS[save.weapon]
-  const tier = clawTier(save.gear.weapon)
+  const tier = heldTier(save)
   const power = tierPower(tier, weaponRank(save, save.weapon).rank)
   return applyAttributes({
     dmg: (10 + str * 0.55 + save.gear.weapon * 1.35) * w.dmg * power,
@@ -487,11 +499,6 @@ export function scaledHp(base: number, level: number): number {
   return Math.round(base * (1 + Math.max(0, level - 1) * 0.055))
 }
 
-/** One clear counts as half a level of trash growth. The king's own formula is separate. */
-export function enemySteps(save: SaveData): number {
-  return Math.max(0, save.level - 1) + save.bossKills * 0.5
-}
-
 export interface FightStats {
   hp: number
   dmg: number
@@ -501,10 +508,10 @@ export interface FightStats {
   blood: number
 }
 
-export function enemyStats(kind: Exclude<EnemyKind, 'boss' | 'don'>, save: SaveData): FightStats {
+/** Stats at `steps` of growth. A night's steps come from its district, danger, and clock (see nights.ts). */
+export function enemyStats(kind: Exclude<EnemyKind, 'boss' | 'don'>, steps: number): FightStats {
   const def = ENEMIES[kind]
   const g = GROWTH[kind]
-  const steps = enemySteps(save)
   return {
     hp: Math.round(def.hp * (1 + steps * g.hp)),
     dmg: def.dmg * (1 + steps * g.dmg),
@@ -538,49 +545,63 @@ export function grantXp(save: SaveData, amount: number): number {
   return gained
 }
 
-export function bossBlueprint(save: SaveData): {
+export interface BossSheet {
   hp: number
   dmg: number
   pound: number
   speed: number
   xp: number
   blood: number
-} {
+}
+
+/** A night's danger steps on top of a boss's own formula. */
+function atSteps(bp: BossSheet, steps: number): BossSheet {
+  return {
+    ...bp,
+    hp: Math.round(bp.hp * (1 + steps * 0.06)),
+    dmg: bp.dmg * (1 + steps * 0.04),
+    pound: bp.pound * (1 + steps * 0.04),
+    xp: Math.round(bp.xp * (1 + steps * 0.05)),
+    blood: Math.round(bp.blood * (1 + steps * 0.05)),
+  }
+}
+
+export function bossBlueprint(save: SaveData, steps = 0): BossSheet {
   const str = combatStat(save, 'strength')
   const n = save.bossKills
-  return {
-    hp: Math.round((460 + str * 5.5) * Math.pow(1.18, n)),
-    dmg: 11 + n * 2,
-    pound: 16 + n * 3,
-    speed: 1.5,
-    xp: 48,
-    blood: 200,
-  }
+  return atSteps(
+    {
+      hp: Math.round((460 + str * 5.5) * Math.pow(1.18, n)),
+      dmg: 11 + n * 2,
+      pound: 16 + n * 3,
+      speed: 1.5,
+      xp: 48,
+      blood: 200,
+    },
+    steps,
+  )
 }
 
 /** Next district boss. Separate from the Rat King so Slums scaling stays put. */
-export function donBlueprint(save: SaveData): {
-  hp: number
-  dmg: number
-  pound: number
-  speed: number
-  xp: number
-  blood: number
-} {
+export function donBlueprint(save: SaveData, steps = 0): BossSheet {
   const str = combatStat(save, 'strength')
   const n = save.donKills
-  return {
-    hp: Math.round((680 + str * 6.2) * Math.pow(1.18, n)),
-    dmg: 14 + n * 2,
-    pound: 20 + n * 3,
-    speed: 1.42,
-    xp: 62,
-    blood: 260,
-  }
+  return atSteps(
+    {
+      hp: Math.round((680 + str * 6.2) * Math.pow(1.18, n)),
+      dmg: 14 + n * 2,
+      pound: 20 + n * 3,
+      speed: 1.42,
+      xp: 62,
+      blood: 260,
+    },
+    steps,
+  )
 }
 
-export function skillDamage(id: SkillId, prof: CombatProfile): number {
-  const base = prof.dmg * prof.skill
+/** Skill hit before mitigation. Vitae ranks on the power scale it (see nights.ts). */
+export function skillDamage(id: SkillId, prof: CombatProfile, rank = 0): number {
+  const base = prof.dmg * prof.skill * powerScale(rank).dmg
   if (id === 'bats') return base * 0.42
   if (id === 'drain') return base * 1.7
   if (id === 'dash') return base * 1.15

@@ -1,8 +1,18 @@
 # Enemy stats
 
-Level 1 with zero Rat King clears uses the base row. A clear counts as half a level on top of that. The hero's attack interval is unchanged.
+Enemies no longer grow with the hero's level. They grow with the night: the district, the danger picked at the Haven, and how long the night has run (see `src/game/nights.ts`). Stats are stamped when a creature spawns or returns.
 
-Steps = `(level - 1) + bossKills × 0.5`
+Steps = `district steps + danger steps + minutes into the night × 0.9`
+
+| | Danger I | II | III | IV | V |
+| --- | --- | --- | --- | --- | --- |
+| Danger steps | 0 | 4 | 9 | 15 | 22 |
+| Blood multiplier | ×1 | ×1.35 | ×1.8 | ×2.4 | ×3.2 |
+| Elite chance | 6% | 9% | 12% | 15% | 18% |
+
+The Slums add 0 steps and pay ×1. The Mob District adds 3 steps and pays ×1.25 on top. Elites have ×2.4 HP, ×1.3 damage, triple Blood, and drop Ichor. The Rat King and the Don keep their own formulas below, scaled by the same steps (+6% HP, +4% damage and pound, +5% XP and Blood per step).
+
+The tables below are at 0 steps (the old "level 1, no clears" row) and use the same growth per step.
 
 - HP = round(base HP × (1 + steps × HP growth))
 - Damage = base damage × (1 + steps × damage growth)

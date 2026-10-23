@@ -1,5 +1,6 @@
 import type { Attr } from './attributes'
 import type { ClawTierId } from './balance'
+import type { DistrictId, Purse, RiteId } from './nights'
 import type { WeaponKind } from './weapons'
 
 export type Stat =
@@ -37,9 +38,31 @@ export interface WeaponRank {
   kills: number
 }
 
+/** A night in progress, so a reload drops the hero back into it. */
+export interface NightSave {
+  district: DistrictId
+  /** 0-based index into DANGERS. */
+  danger: number
+  elapsed: number
+  carried: Purse
+  kills: number
+}
+
 export interface SaveData {
   v: 1
+  /** Banked Blood. A night's Blood is carried until extraction. */
   blood: number
+  ichor: number
+  vitae: number
+  /** The weapon tier bought with Ichor. Shared by every weapon class. */
+  weaponTier: ClawTierId
+  /** Vitae ranks on each blood power. */
+  powers: Record<SkillId, number>
+  rites: Record<RiteId, number>
+  /** Highest danger unlocked in each district, 0-based. */
+  danger: Record<DistrictId, number>
+  extracts: number
+  night: NightSave | null
   stacks: Record<Stat, number>
   /** Attribute points the player has spent. Base values live in attributes.ts. */
   attrs: Record<Attr, number>

@@ -4,6 +4,7 @@ import { paintSkill, paintSlot } from './icons'
 import type { OfflineReport, SkillId, Slot, Stat } from './types'
 import { SKILLS, SLOTS, STATS } from './types'
 import { WEAPONS, WEAPON_KINDS, type WeaponKind } from './weapons'
+import type { DistrictId, Purse, RiteId } from './nights'
 
 const GEAR_ICON = `<svg class="ico" viewBox="0 0 32 32" aria-hidden="true"><path fill="currentColor" d="M16 28.4c-5.4-1.1-9.2-4.6-10-9.2L4.6 11.2C5.2 7.2 8 5.2 11.2 4.8 12.4 7.2 14 8.6 16 8.6s3.6-1.4 4.8-3.8c3.2.4 6 2.4 6.6 6.4l-1.4 8c-.8 4.6-4.6 8.1-10 9.2z"/><path fill="none" stroke="#171b26" stroke-width="1.4" stroke-linecap="round" d="M16 11.2v11"/><path fill="none" stroke="#171b26" stroke-width="1.3" stroke-linecap="round" d="M10.2 20.6h11.6"/></svg>`
 const SOUND_ON = `<svg class="ico ico-on" viewBox="0 0 32 32" aria-hidden="true"><path fill="currentColor" d="M5 12.2h5.1L16 7.4v17.2l-5.9-4.8H5z"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M20.2 12.4a5.2 5.2 0 0 1 0 7.2M23.4 9.4a9.2 9.2 0 0 1 0 13.2"/></svg>`
@@ -11,6 +12,64 @@ const SOUND_OFF = `<svg class="ico ico-off" viewBox="0 0 32 32" aria-hidden="tru
 const LOCK_ICON = `<svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="16" cy="16" r="2.2" fill="currentColor"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M16 3.5v4.2M16 24.3v4.2M3.5 16h4.2M24.3 16h4.2"/></svg>`
 
 const INSTALL_TIP = 'iPhone: Share, then Add to Home Screen. The hunt stays on this device.'
+
+export interface NightHudView {
+  clock: string
+  /** The last minute, and the dawn itself. */
+  warn: boolean
+  frenzy: number
+  frenzyFill: number
+  danger: string
+}
+
+export interface HavenView {
+  purse: Purse
+  night: string
+  keep: number
+  extracts: number
+  districts: {
+    id: DistrictId
+    label: string
+    blurb: string
+    locked: boolean
+    lockText: string
+    dangers: { label: string; reward: number; unlocked: boolean }[]
+    best: number
+  }[]
+  powers: { id: SkillId; label: string; rank: number; max: number; effect: string; cost: number; canBuy: boolean }[]
+  rites: { id: RiteId; label: string; rank: number; max: number; effect: string; next: string; cost: number; canBuy: boolean }[]
+}
+
+export interface SummaryView {
+  outcome: 'extracted' | 'fell' | 'dawn' | 'fled'
+  district: string
+  danger: string
+  banked: Purse
+  lost: Purse
+  bonusVitae: number
+  keep: number
+  kills: number
+  time: string
+  unlock: string | null
+}
+
+export interface AscendView {
+  label: string
+  css: string
+  cost: number
+  /** Why it cannot be bought yet, or empty. */
+  need: string
+  canBuy: boolean
+}
+
+const OUTCOME: Record<SummaryView['outcome'], { title: string; flavor: string }> = {
+  extracted: { title: 'Extracted', flavor: 'You slipped out with the haul before the sky turned.' },
+  fell: { title: 'You fell', flavor: 'The hunt took you. The Blood Pact held a little back.' },
+  dawn: { title: 'Taken by the dawn', flavor: 'The sun found you in the open. The Blood Pact held a little back.' },
+  fled: { title: 'You fled', flavor: 'You left the night early. The Blood Pact held a little back.' },
+}
+
+const CURRENCY_LABEL: Record<keyof Purse, string> = { blood: 'Blood', ichor: 'Ichor', vitae: 'Vitae' }
 
 const STAT_LABEL: Record<Stat, string> = {
   strength: 'Strength',
@@ -44,6 +103,14 @@ export class Hud {
   onClaim = (): void => {}
   onMute = (): void => {}
   onTap: (x: number, y: number) => void = () => {}
+  onOpenHaven = (): void => {}
+  onCloseHaven = (): void => {}
+  onBeginNight: (district: DistrictId, danger: number) => void = () => {}
+  onBuyPower: (id: SkillId) => void = () => {}
+  onBuyRite: (id: RiteId) => void = () => {}
+  onAscend = (): void => {}
+  onAbandon = (): void => {}
+  onLeaveSummary = (): void => {}
 
   private joy = { active: false, id: -1, ox: 0, oy: 0, x: 0, y: 0 }
   private keys = new Set<string>()
@@ -56,6 +123,10 @@ export class Hud {
   private skillBtns: Record<SkillId, HTMLButtonElement>
   private nodeTags: Record<'crypt' | 'fountain', HTMLElement>
   private attrsOpen = false
+  private havenTab: 'hunt' | 'powers' | 'rites' = 'hunt'
+  /** The danger picked on each district card. */
+  private pick: Partial<Record<DistrictId, number>> = {}
+  private havenView: HavenView | null = null
 
   constructor(parent: HTMLElement) {
     parent.innerHTML = `
@@ -75,7 +146,12 @@ export class Hud {
               </div>
             </div>
             <div class="top-actions">
-              <div class="blood-pill"><span class="drop"></span><span id="blood">0</span></div>
+              <div class="purse" id="purse">
+                <small id="purse-tag">BANKED</small>
+                <div class="blood-pill"><span class="drop"></span><span id="blood">0</span></div>
+                <div class="coin-pill ichor"><span class="gem"></span><span id="ichor">0</span></div>
+                <div class="coin-pill vitae"><span class="gem"></span><span id="vitae">0</span></div>
+              </div>
               <button id="btn-gear" type="button" aria-label="Open gear">${GEAR_ICON}</button>
               <button id="btn-mute" type="button" aria-label="Mute sound" aria-pressed="false">${SOUND_ON}${SOUND_OFF}</button>
             </div>
@@ -88,6 +164,12 @@ export class Hud {
             <p id="summon-text">The Rat King is awake under the crypt.</p>
             <button id="btn-summon" type="button">Call him out</button>
           </div>
+          <div id="night-chip" hidden>
+            <div class="night-row"><b id="night-clock">5:00</b><span id="night-danger">Danger I</span></div>
+            <div class="frenzy"><i id="frenzy-fill"></i><span id="frenzy-text">Frenzy ×1.0</span></div>
+          </div>
+          <div id="extract-mark" hidden><span class="arrow"></span><span class="ring"></span><em></em></div>
+          <button id="btn-haven" type="button" hidden>THE HAVEN</button>
           <div id="banner" hidden></div>
           <div id="hint">Drag the left side to move. Your claws hunt on their own.</div>
           <div id="toast"></div>
@@ -121,6 +203,10 @@ export class Hud {
             <div id="gear-bonus">+4 Strength</div>
             <div class="cost-line" id="cost-line"><span class="drop"></span><span>Blood Cost: <b id="gear-cost">12</b></span></div>
             <button id="btn-upgrade" type="button">UPGRADE</button>
+            <button id="btn-ascend" type="button" hidden>ASCEND</button>
+            <p class="ascend-need" id="ascend-need" hidden></p>
+            <p class="spend-note" id="spend-note" hidden>Blood and Ichor are spent at the Haven, after you extract.</p>
+            <button id="btn-abandon" type="button" hidden>Abandon the night</button>
             <p class="install-tip" id="gear-note">${INSTALL_TIP}</p>
           </div>
         </div>
@@ -130,6 +216,15 @@ export class Hud {
             <p class="flavor" id="offline-flavor">Your thralls kept hunting the Slums.</p>
             <ul id="offline-lines"></ul>
             <button id="offline-claim" type="button">Take it</button>
+          </div>
+        </div>
+        <div id="haven" hidden><div class="haven-panel"></div></div>
+        <div id="night-end" hidden>
+          <div class="modal">
+            <h2 id="end-title">Extracted</h2>
+            <p class="flavor" id="end-flavor"></p>
+            <ul id="end-lines"></ul>
+            <button id="end-leave" type="button">Return to the Haven</button>
           </div>
         </div>
         <div id="rotate-lock">Turn your phone upright. The Slums are taller than they are wide.</div>
@@ -266,6 +361,40 @@ export class Hud {
       e.stopPropagation()
       this.onMute()
     })
+    const press = (sel: string, fn: () => void) =>
+      parent.querySelector(sel)!.addEventListener('pointerdown', (e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        fn()
+      })
+    press('#btn-haven', () => this.onOpenHaven())
+    press('#btn-ascend', () => this.onAscend())
+    press('#btn-abandon', () => this.onAbandon())
+    press('#end-leave', () => this.onLeaveSummary())
+    parent.querySelector('#haven')!.addEventListener('pointerdown', (e) => {
+      const el = (e.target as Element).closest('[data-act]') as HTMLElement | null
+      if (!el) return
+      e.preventDefault()
+      e.stopPropagation()
+      if ((el as HTMLButtonElement).disabled) return
+      const act = el.dataset.act
+      const id = el.dataset.id ?? ''
+      if (act === 'tab') {
+        this.havenTab = id as typeof this.havenTab
+        this.renderHaven()
+      } else if (act === 'danger') {
+        this.pick[el.dataset.district as DistrictId] = Number(id)
+        this.renderHaven()
+      } else if (act === 'begin') {
+        const district = id as DistrictId
+        const card = this.havenView?.districts.find((d) => d.id === district)
+        this.onBeginNight(district, this.pick[district] ?? card?.best ?? 0)
+      } else if (act === 'power') this.onBuyPower(id as SkillId)
+      else if (act === 'rite') this.onBuyRite(id as RiteId)
+      else if (act === 'close') this.onCloseHaven()
+      else if (act === 'gear') this.onOpenMenu()
+    })
+
     parent.querySelector('#btn-lock')!.addEventListener('pointerdown', (e) => {
       e.preventDefault()
       e.stopPropagation()
@@ -330,6 +459,177 @@ export class Hud {
     el.textContent = formatNum(n)
   }
 
+  /** The three currencies in the top bar: banked at the Haven, carried on a night. */
+  setPurse(purse: Purse, carried: boolean): void {
+    this.setBlood(purse.blood)
+    this.root.querySelector('#ichor')!.textContent = formatNum(purse.ichor)
+    this.root.querySelector('#vitae')!.textContent = formatNum(purse.vitae)
+    const tag = this.root.querySelector('#purse-tag') as HTMLElement
+    tag.textContent = carried ? 'CARRIED' : 'BANKED'
+    this.root.querySelector('#purse')!.classList.toggle('carried', carried)
+  }
+
+  setHavenButton(show: boolean): void {
+    ;(this.root.querySelector('#btn-haven') as HTMLElement).hidden = !show
+  }
+
+  setNightHud(view: NightHudView | null): void {
+    const chip = this.root.querySelector('#night-chip') as HTMLElement
+    chip.hidden = !view
+    if (!view) return
+    chip.classList.toggle('warn', view.warn)
+    this.root.querySelector('#night-clock')!.textContent = view.clock
+    this.root.querySelector('#night-danger')!.textContent = `Danger ${view.danger}`
+    ;(this.root.querySelector('#frenzy-fill') as HTMLElement).style.width = `${Math.max(0, Math.min(1, view.frenzyFill)) * 100}%`
+    this.root.querySelector('#frenzy-text')!.textContent = `Frenzy ×${view.frenzy.toFixed(1)}`
+    chip.classList.toggle('frenzied', view.frenzy > 1.05)
+  }
+
+  /** The way-out marker. `edge` pins it to the screen border, pointing along `angle`. */
+  setExtract(x: number, y: number, show: boolean, edge: boolean, angle: number, label: string, dist: number, progress: number): void {
+    const el = this.root.querySelector('#extract-mark') as HTMLElement
+    el.hidden = !show
+    if (!show) return
+    el.style.transform = `translate(${x}px, ${y}px)`
+    el.classList.toggle('edge', edge)
+    // Near a side, the label hangs inward so it is not cut off.
+    el.classList.toggle('left', x < 90)
+    el.classList.toggle('right', x > window.innerWidth - 90)
+    ;(el.querySelector('.arrow') as HTMLElement).style.transform = `rotate(${angle}rad)`
+    ;(el.querySelector('.ring') as HTMLElement).style.setProperty('--p', Math.max(0, Math.min(1, progress)).toFixed(3))
+    el.querySelector('em')!.textContent = progress > 0 ? 'Leaving…' : `${label} · ${Math.round(dist)}m`
+  }
+
+  showHaven(open: boolean): void {
+    ;(this.root.querySelector('#haven') as HTMLElement).hidden = !open
+    if (open) this.renderHaven()
+    this.syncHudVisibility()
+  }
+
+  havenOpen(): boolean {
+    return !(this.root.querySelector('#haven') as HTMLElement).hidden
+  }
+
+  setHaven(view: HavenView): void {
+    this.havenView = view
+    if (this.havenOpen()) this.renderHaven()
+  }
+
+  showSummary(view: SummaryView | null): void {
+    const el = this.root.querySelector('#night-end') as HTMLElement
+    el.hidden = !view
+    this.syncHudVisibility()
+    if (!view) return
+    const text = OUTCOME[view.outcome]
+    el.querySelector('#end-title')!.textContent = text.title
+    el.querySelector('#end-flavor')!.textContent =
+      view.outcome === 'extracted' ? text.flavor : `${text.flavor} You kept ${view.keep}% of the haul.`
+    el.classList.toggle('lost', view.outcome !== 'extracted')
+    const lines: string[] = [`<li class="head">${view.district} · Danger ${view.danger} · ${view.time} · ${view.kills} kills</li>`]
+    for (const k of ['blood', 'ichor', 'vitae'] as const) {
+      const banked = view.banked[k]
+      const lost = view.lost[k]
+      if (banked <= 0 && lost <= 0) continue
+      const bonus = k === 'vitae' && view.bonusVitae > 0 ? ` <small>(${view.bonusVitae} for getting out)</small>` : ''
+      const gone = lost > 0 ? ` <s>${formatNum(lost)} lost</s>` : ''
+      lines.push(`<li class="${k}"><span>${CURRENCY_LABEL[k]}</span><b>+${formatNum(banked)}</b>${bonus}${gone}</li>`)
+    }
+    if (lines.length === 1) lines.push('<li>Nothing came home.</li>')
+    if (view.unlock) lines.push(`<li class="unlock">${view.unlock}</li>`)
+    el.querySelector('#end-lines')!.innerHTML = lines.join('')
+  }
+
+  summaryOpen(): boolean {
+    return !(this.root.querySelector('#night-end') as HTMLElement).hidden
+  }
+
+  /** The weapon slot's tier-up, paid in Ichor. Null hides it (another slot, or Immortal). */
+  setAscend(view: AscendView | null): void {
+    const btn = this.root.querySelector('#btn-ascend') as HTMLButtonElement
+    const need = this.root.querySelector('#ascend-need') as HTMLElement
+    btn.hidden = !view
+    need.hidden = !view || !view.need
+    if (!view) return
+    btn.innerHTML = `ASCEND · <span style="color:${view.css}">${view.label.toUpperCase()}</span> · ${formatNum(view.cost)} Ichor`
+    btn.disabled = !view.canBuy
+    need.textContent = view.need
+  }
+
+  /** On a night the menu shows gear but cannot spend, and offers to give the night up. */
+  setSpendLock(locked: boolean, keep = 25): void {
+    ;(this.root.querySelector('#spend-note') as HTMLElement).hidden = !locked
+    const abandon = this.root.querySelector('#btn-abandon') as HTMLElement
+    abandon.hidden = !locked
+    abandon.textContent = `Abandon the night · keep ${keep}%`
+  }
+
+  private renderHaven(): void {
+    const view = this.havenView
+    const panel = this.root.querySelector('.haven-panel') as HTMLElement
+    if (!view) return
+    const tab = (id: string, label: string) =>
+      `<button type="button" data-act="tab" data-id="${id}" class="${this.havenTab === id ? 'on' : ''}">${label}</button>`
+    let body = ''
+    if (this.havenTab === 'hunt') {
+      body = view.districts
+        .map((d) => {
+          if (d.locked) {
+            return `<div class="district locked"><h3>${d.label}</h3><p>${d.blurb}</p><p class="lock">${d.lockText}</p></div>`
+          }
+          const picked = Math.min(this.pick[d.id] ?? d.best, d.best)
+          const pips = d.dangers
+            .map(
+              (x, i) =>
+                `<button type="button" class="pip ${i === picked ? 'on' : ''}" data-act="danger" data-district="${d.id}" data-id="${i}" ${x.unlocked ? '' : 'disabled'}>${x.label}</button>`,
+            )
+            .join('')
+          const reward = d.dangers[picked].reward
+          return `<div class="district">
+            <h3>${d.label}</h3>
+            <p>${d.blurb}</p>
+            <div class="pips"><span>Danger</span>${pips}</div>
+            <p class="pay">×${reward.toFixed(2)} Blood · extract to open the next danger</p>
+            <button type="button" class="begin" data-act="begin" data-id="${d.id}">Begin the night</button>
+          </div>`
+        })
+        .join('')
+      body += `<p class="haven-rules">Dusk lasts ${view.night}. Everything you pick up is carried. Reach a way out to bank it. Fall, or meet the dawn, and you keep ${view.keep}%.</p>`
+    } else if (this.havenTab === 'powers') {
+      body = view.powers
+        .map(
+          (p) => `<div class="shop-row">
+            <div><b>${p.label}</b> <small>${p.rank}/${p.max}</small><em>${p.effect}</em></div>
+            <button type="button" data-act="power" data-id="${p.id}" ${p.canBuy ? '' : 'disabled'}>${p.rank >= p.max ? 'MAX' : `${p.cost} Vitae`}</button>
+          </div>`,
+        )
+        .join('')
+    } else {
+      body = view.rites
+        .map(
+          (r) => `<div class="shop-row">
+            <div><b>${r.label}</b> <small>${r.rank}/${r.max}</small><em>${r.rank > 0 ? r.effect : 'Not yet'}${r.next ? ` → ${r.next}` : ''}</em></div>
+            <button type="button" data-act="rite" data-id="${r.id}" ${r.canBuy ? '' : 'disabled'}>${r.rank >= r.max ? 'MAX' : `${r.cost} Vitae`}</button>
+          </div>`,
+        )
+        .join('')
+    }
+    const coin = (k: keyof Purse) => `<span class="coin ${k}"><i></i>${formatNum(view.purse[k])} <small>${CURRENCY_LABEL[k]}</small></span>`
+    panel.innerHTML = `
+      <div class="haven-head"><h2>The Haven</h2><button type="button" class="ghost" data-act="close">Walk the yard</button></div>
+      <div class="haven-purse">${coin('blood')}${coin('ichor')}${coin('vitae')}</div>
+      <p class="haven-key">Blood levels your gear. Ichor ascends your weapon. Vitae buys powers and rites.</p>
+      <nav class="haven-tabs">${tab('hunt', 'Hunt')}${tab('powers', 'Powers')}${tab('rites', 'Rites')}</nav>
+      <div class="haven-body">${body}</div>
+      <button type="button" class="haven-gear" data-act="gear">Gear &amp; Weapons</button>
+      <p class="haven-foot">${view.extracts} night${view.extracts === 1 ? '' : 's'} survived</p>`
+  }
+
+  /** The play HUD hides under any full-screen panel. */
+  private syncHudVisibility(): void {
+    const hud = this.root.querySelector('#hud') as HTMLElement
+    hud.style.visibility = this.menuOpen() || this.modalOpen() ? 'hidden' : 'visible'
+  }
+
   setHp(ratio: number): void {
     const fill = this.root.querySelector('#hp-fill') as HTMLElement
     fill.style.width = `${Math.max(0, Math.min(1, ratio)) * 100}%`
@@ -376,7 +676,7 @@ export class Hud {
 
   showMenu(open: boolean): void {
     ;(this.root.querySelector('#menu') as HTMLElement).hidden = !open
-    ;(this.root.querySelector('#hud') as HTMLElement).style.visibility = open ? 'hidden' : 'visible'
+    this.syncHudVisibility()
     if (open) this.markSlot()
   }
 
@@ -462,8 +762,7 @@ export class Hud {
     const hud = this.root.querySelector('#hud') as HTMLElement
     if (!report) {
       el.hidden = true
-      if (this.menuOpen()) hud.style.visibility = 'hidden'
-      else hud.style.visibility = 'visible'
+      this.syncHudVisibility()
       return
     }
     el.hidden = false
@@ -556,8 +855,9 @@ export class Hud {
     return !(this.root.querySelector('#menu') as HTMLElement).hidden
   }
 
+  /** Any full-screen panel that pauses the hunt: the offline report, the Haven board, or a night's summary. */
   modalOpen(): boolean {
-    return !(this.root.querySelector('#offline') as HTMLElement).hidden
+    return !(this.root.querySelector('#offline') as HTMLElement).hidden || this.havenOpen() || this.summaryOpen()
   }
 
   private markSlot(): void {
@@ -568,7 +868,7 @@ export class Hud {
 
   private blockedTarget(target: EventTarget | null): boolean {
     if (!(target instanceof Element)) return false
-    return !!target.closest('button, a, input, #menu, #offline, #summon-wrap')
+    return !!target.closest('button, a, input, #menu, #offline, #summon-wrap, #haven, #night-end')
   }
 
   private onDown = (e: PointerEvent): void => {

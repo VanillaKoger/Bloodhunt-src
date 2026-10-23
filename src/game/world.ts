@@ -5,10 +5,13 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 
 export const HERO_START = { x: -1.2, z: 1.4 }
 /**
- * The mob district stays in the code. While this is false the gate is not
- * built, travel is ignored, and district enemies are not spawned.
+ * The walk-through gate between the Slums and the mob district. While this
+ * is false the gates are not built and travel by gate is ignored: districts
+ * are chosen at the Haven instead (see nights.ts).
  */
 export const DISTRICT_OPEN = false
+/** The mob district's square: asphalt, buildings, cars, signs, and its club gate. Hunted from the Haven. */
+export const MOB_ARENA = true
 /** Second arena, far enough that the slum fog hides it. */
 export const MOB_Z = 64
 /**
@@ -1328,10 +1331,11 @@ function mobClassic(scene: THREE.Scene): void {
 
 function dressStreets(scene: THREE.Scene): { gateGlow: THREE.MeshLambertMaterial } {
   const gateGlow = mat(0x6a3a58, { emissive: 0xff4ad8, emissiveIntensity: 0.28 })
-  if (!DISTRICT_OPEN) return { gateGlow }
+  if (!MOB_ARENA) return { gateGlow }
   asphalt(scene)
   const mobGlow = mat(0x49e0ff, { emissive: 0x49e0ff, emissiveIntensity: 1.5 })
-  makeGate(scene, SLUM_GATE.x, SLUM_GATE.z, Math.PI / 2, gateGlow)
+  if (DISTRICT_OPEN) makeGate(scene, SLUM_GATE.x, SLUM_GATE.z, Math.PI / 2, gateGlow)
+  // The club gate is the district's way out at the end of a night.
   makeGate(scene, MOB_GATE.x, MOB_GATE.z, Math.PI, mobGlow)
   const diner = frontOf(MOB_BLOCKS[0], 0, MOB_Z, 0.42)
   const club = frontOf(MOB_BLOCKS[1], 0, MOB_Z, 0.42)
@@ -1501,7 +1505,7 @@ export function buildWorld(
     for (const b of blocks) tenement(bucket, lamps, b)
     bucket.flush(scene)
     lampsOf(scene, lamps)
-    if (DISTRICT_OPEN) mobClassic(scene)
+    if (MOB_ARENA) mobClassic(scene)
   }
   stubClosures(scene, !dress)
   laundry(scene)
@@ -1513,7 +1517,7 @@ export function buildWorld(
   const obstacles: { x: number; z: number; r: number }[] = [
     { x: SLUM_GATE.x, z: SLUM_GATE.z, r: 0.58 },
   ]
-  if (DISTRICT_OPEN) {
+  if (MOB_ARENA) {
     for (const b of MOB_BLOCKS) obstacles.push({ x: b.x, z: b.z, r: b.w * 0.48 })
     for (const car of MOB_CARS) obstacles.push({ x: car.x, z: car.z, r: 0.9 })
   }
