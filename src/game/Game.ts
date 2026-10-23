@@ -30,6 +30,7 @@ import {
   xpNeed,
   type CombatProfile,
 } from './balance'
+import { ATTRS, POINTS_PER_LEVEL, attrPointsLeft, effectiveAttrs, weaponType, type Attr } from './attributes'
 import { Hud } from './hud'
 import {
   animateHero,
@@ -551,6 +552,7 @@ export class Game {
     this.hud.onCloseMenu = () => this.closeMenu()
     this.hud.onSelectSlot = () => this.refreshMenu()
     this.hud.onUpgrade = () => this.upgrade()
+    this.hud.onRaise = (attr) => this.raiseAttr(attr)
     this.hud.onSummon = () => this.trySummon()
     this.hud.onClaim = () => this.claimOffline()
     this.hud.onMute = () => this.toggleMute()
@@ -1750,7 +1752,7 @@ export class Game {
   private damageHero(raw: number, fromBoss: boolean): void {
     if (this.hero.dead || this.iframe > 0) return
     const prof = profile(this.save)
-    const amount = mitigate(raw, prof.armor, prof.resist, fromBoss)
+    const amount = Math.max(1, mitigate(raw, prof.armor, prof.resist, fromBoss) * prof.guard)
     this.hero.hp -= amount
     this.iframe = 0.42
     this.shake = Math.max(this.shake, fromBoss ? 0.28 : 0.12)
@@ -1778,6 +1780,7 @@ export class Game {
     if (e.kind === 'boss' || e.kind === 'don') {
       const don = e.kind === 'don'
       const bp = don ? donBlueprint(this.save) : bossBlueprint(this.save)
+      const blood = Math.round(bp.blood * profile(this.save).bloodMult)
       if (don) {
         this.save.donKills += 1
         this.don = null
@@ -1790,7 +1793,7 @@ export class Game {
         this.world.gateGlow.color.setHex(0xff4ad8)
       }
       this.save.kills += 1
-      this.save.blood += bp.blood
+      this.save.blood += blood
       for (const s of STATS) this.save.stacks[s] += 2
       const levels = grantXp(this.save, bp.xp)
       this.poundRing.visible = false
@@ -1804,9 +1807,9 @@ export class Game {
             ? 'The Slums remember your name'
             : 'The king falls again',
       )
-      this.floatAt(e.x, 2.2, e.z, `+${bp.blood} Blood`, 'blood')
+      this.floatAt(e.x, 2.2, e.z, `+${blood} Blood`, 'blood')
       this.floatAt(e.x, 1.7, e.z, '+2 all', 'all')
-      this.spawnDrops(e.x, e.z, bp.blood)
+      this.spawnDrops(e.x, e.z, blood)
       if (levels) this.onLevel(levels)
       this.noteKill()
       this.persist()
@@ -1815,7 +1818,7 @@ export class Game {
     if (e.kind === 'hero') return
     const def = ENEMIES[e.kind]
     const xp = e.rewardXp || def.xp
-    const blood = e.rewardBlood || def.blood
+    const blood = Math.round((e.rewardBlood || def.blood) * profile(this.save).bloodMult)
     this.save.kills += 1
     if (e.kind === 'thug' || e.kind === 'enforcer') this.save.mobKills += 1
     this.save.stacks[def.stat] += 1
@@ -1834,7 +1837,8 @@ export class Game {
     this.hero.maxHp = prof.hp
     this.hero.hp = this.hero.maxHp
     this.floatAt(this.hero.x, this.hero.barY + 0.06, this.hero.z, `Level ${this.save.level}`, 'level')
-    if (gained > 0) this.hud.toast(`Level ${this.save.level}. The night leans in.`)
+    const pts = gained * POINTS_PER_LEVEL
+    if (gained > 0) this.hud.toast(`Level ${this.save.level}. The night leans in. +${pts} attribute point${pts > 1 ? 's' : ''}.`)
   }
 
   private noteKill(): void {
@@ -2005,6 +2009,7 @@ export class Game {
     for (const row of rows) row.fill = row.value / scale
     this.hud.setStats(rows)
     this.hud.setFeeds(this.save.kills, this.save.bossKills > 0)
+    this.hud.setAttrs(effectiveAttrs(this.save), weaponType(this.save), attrPointsLeft(this.save))
     const slot = this.hud.selected
     const lv = this.save.gear[slot]
     const maxed = lv >= MAX_GEAR
@@ -2053,6 +2058,19 @@ export class Game {
       this.burst(this.hero.x, 1.0, this.hero.z, tier.color, 18, 2.6, 0.6)
       this.shake = Math.max(this.shake, 0.22)
     } else this.hud.toast(evolvedNow ? `${name} awakened` : `${name} sharpened`)
+    this.syncVitals(profile(this.save))
+    this.persist()
+    this.refreshMenu()
+  }
+
+  private raiseAttr(attr: Attr): void {
+    if (attrPointsLeft(this.save) <= 0) {
+      this.hud.toast('No attribute points. Level up to earn more.')
+      this.sfx.play('click')
+      return
+    }
+    this.save.attrs[attr] += 1
+    this.sfx.play('upgrade')
     this.syncVitals(profile(this.save))
     this.persist()
     this.refreshMenu()
@@ -3011,6 +3029,10 @@ export class Game {
           resistance: sheetStat(this.save, 'resistance'),
         },
         gearFlat: gearFlat(this.save),
+        attrs: { ...this.save.attrs },
+        attrPoints: attrPointsLeft(this.save),
+        attrFx: effectiveAttrs(this.save),
+        prof: profile(this.save),
         camForward: { x: this.camFwd.x, z: this.camFwd.z },
         camRight: { x: this.camRight.x, z: this.camRight.z },
         fps: Math.round(this.fps),
@@ -3045,6 +3067,13 @@ export class Game {
       }),
       summon: () => {
         this.summonKing(true)
+      },
+      /** Quick test hook: set an attribute's spent points directly, ignoring the point budget. */
+      setAttr: (attr: Attr, value: number) => {
+        if (!ATTRS.includes(attr)) return
+        this.save.attrs[attr] = Math.max(0, Math.floor(value))
+        this.syncVitals(profile(this.save))
+        if (this.mode === 'menu') this.refreshMenu()
       },
       guide: (x: number, z: number, speed = 1.85) => {
         this.guide = { x, z }
