@@ -3,6 +3,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import type { KenneyAnimState, KenneyDriver, Rig } from './models'
 import { addRim } from './polish'
+import type { FoeLook } from './types'
 
 /**
  * Quaternius creatures and people, each on clips made for its own skeleton
@@ -145,6 +146,7 @@ class CritterDriver implements KenneyDriver {
   constructor(
     private readonly mixer: THREE.AnimationMixer,
     clips: Map<string, THREE.AnimationClip>,
+    private readonly bob: THREE.Group,
   ) {
     const loop = (name: string) => {
       const clip = clips.get(name)
@@ -170,6 +172,9 @@ class CritterDriver implements KenneyDriver {
   }
 
   update(state: KenneyAnimState): void {
+    // The game skips its own reset for driven rigs and adds its leans and stagger on top each frame.
+    this.bob.rotation.set(0, 0, 0)
+    this.bob.position.y = 0
     const gait = Math.max(0, Math.min(1, state.gait))
     const swinging = state.swing > 0 && state.swing < 1 && this.attack != null
     const w = swinging ? 0 : 1
@@ -208,7 +213,7 @@ export function buildCritterRig(template: CritterTemplate, height: number, opts:
     legL: spare(),
     legR: spare(),
     claws: [],
-    drive: new CritterDriver(new THREE.AnimationMixer(model), template.clips),
+    drive: new CritterDriver(new THREE.AnimationMixer(model), template.clips, bob),
     mats: {},
   }
 }
@@ -219,9 +224,9 @@ export interface Flyer {
   mixer: THREE.AnimationMixer
 }
 
-export function buildFlyer(template: CritterTemplate, height: number, clip = 'flying'): Flyer {
+export function buildFlyer(template: CritterTemplate, height: number, clip = 'flying', glow = 0.5): Flyer {
   const object = new THREE.Group()
-  const model = sized(template, height, { glow: 0.5 })
+  const model = sized(template, height, { glow })
   object.add(model)
   const mixer = new THREE.AnimationMixer(model)
   const c = template.clips.get(clip)
@@ -229,7 +234,8 @@ export function buildFlyer(template: CritterTemplate, height: number, clip = 'fl
     const a = mixer.clipAction(c)
     a.play()
     a.time = Math.random() * c.duration
-    a.timeScale = 1.2 + Math.random() * 0.3
+    // Wings beat a touch fast; a grazing animal keeps its own pace.
+    a.timeScale = clip === 'flying' ? 1.2 + Math.random() * 0.3 : 0.85 + Math.random() * 0.3
   }
   return { object, mixer }
 }
@@ -250,21 +256,27 @@ export async function loadClips(...paths: string[]): Promise<Map<string, THREE.A
   return out
 }
 
-/** Which library clip plays each part of the driver. */
+/** Which library clip plays each part of the driver. A list is tried in order: not every model has every clip. */
 export interface ClipRoles {
   idle: string
   walk: string
   run: string
-  attack: string
+  attack: string | string[]
 }
 
 export function humanoid(scene: THREE.Group, library: Map<string, THREE.AnimationClip>, roles: ClipRoles): CritterTemplate {
   const clips = new Map<string, THREE.AnimationClip>()
-  for (const [role, name] of Object.entries(roles)) {
-    const clip = library.get(name)
+  for (const [role, names] of Object.entries(roles)) {
+    const clip = ([] as string[]).concat(names).map((n) => library.get(n)).find(Boolean)
     if (clip) clips.set(role, clip)
   }
   return { scene, clips }
+}
+
+/** A pack-native model with its own clips, by their own names. These packs export glTF directly: no rebind. */
+async function loadNative(path: string): Promise<{ scene: THREE.Group; library: Map<string, THREE.AnimationClip> }> {
+  const gltf = await new GLTFLoader().loadAsync(asset(path))
+  return { scene: gltf.scene, library: new Map(gltf.animations.map((c) => [c.name, c])) }
 }
 
 const HEAD_BONES = new Set(['Head', 'neck_01'])
@@ -342,12 +354,35 @@ function pick<T>(list: T[]): T {
   return list[Math.floor(Math.random() * list.length)]
 }
 
+/** Every pack character the city casts, by role: plain kinds, map looks (maps.ts `looks`), the Alpha, and the fauna. */
+export interface Cast {
+  walker(): Rig
+  thrall(): Rig
+  hound(): Rig
+  look(name: FoeLook): Rig
+  /** The Blackwood's boss: a great wolf. */
+  alpha(): Rig
+  /** A grazing animal for the map art, looping one of its idles. Null for an unknown name. */
+  fauna(name: string): Flyer | null
+}
+
+const FAUNA = ['stag', 'deer', 'horse', 'horse-white', 'donkey', 'cow'] as const
+
 /**
- * The Universal cast. Walkers and feral thralls are bare base bodies;
- * the Cathedral's hunters and zealots wear the Ranger and Peasant outfits.
+ * Loads the cast:
+ * - Pipeline U: Universal base bodies (feral thralls everywhere; the Docks' drowned and the
+ *   Catacombs' tomb-fed), and the Cathedral's hunters and zealots in Modular Outfits.
+ * - Pipeline N, Zombie Apocalypse Kit: walkers everywhere, the Docks' dockhands, the Mob's guard dogs,
+ *   the Market's strays.
+ * - Pipeline N, Ultimate Animated Animals: hounds (wolves and huskies), strays, the Alpha, and the fauna.
+ * - Pipeline N, Kenney Mini Characters: the Market's barkers and revelers, the Manor's servants.
  */
-export async function loadUniversal(): Promise<Record<'walker' | 'thrall' | 'hunter' | 'zealot', () => Rig>> {
-  const [male, female, rangerM, rangerF, peasantM, peasantF, library] = await Promise.all([
+export async function loadCast(): Promise<Cast> {
+  const zk = 'cc0/quaternius-zombie-apocalypse'
+  const aa = 'cc0/quaternius-animated-animals'
+  const km = 'kenney/mini-characters'
+  const minis = ['female-a', 'female-b', 'female-c', 'female-d', 'female-e', 'female-f', 'male-a', 'male-b', 'male-c', 'male-d', 'male-e', 'male-f']
+  const [male, female, rangerM, rangerF, peasantM, peasantF, library, zombies, survivors, dogs, beasts, grazers, people] = await Promise.all([
     loadHumanoid('cc0/quaternius-base-characters/body-male.glb'),
     loadHumanoid('cc0/quaternius-base-characters/body-female.glb'),
     loadHumanoid('cc0/quaternius-outfits-fantasy/ranger-male.glb'),
@@ -355,21 +390,60 @@ export async function loadUniversal(): Promise<Record<'walker' | 'thrall' | 'hun
     loadHumanoid('cc0/quaternius-outfits-fantasy/peasant-male.glb'),
     loadHumanoid('cc0/quaternius-outfits-fantasy/peasant-female.glb'),
     loadClips('cc0/quaternius-ual/ual-clips.glb', 'cc0/quaternius-ual2/ual2-clips.glb'),
+    Promise.all(['basic', 'chubby', 'ribcage', 'arm'].map((n) => loadNative(`${zk}/zombie-${n}.glb`))),
+    Promise.all(['lis', 'matt', 'sam', 'shaun'].map((n) => loadNative(`${zk}/survivor-${n}.glb`))),
+    Promise.all(['shepherd', 'pug'].map((n) => loadNative(`${zk}/dog-${n}.glb`))),
+    Promise.all(['wolf', 'husky', 'fox', 'shibainu'].map((n) => loadNative(`${aa}/${n}.glb`))),
+    Promise.all(FAUNA.map((n) => loadNative(`${aa}/${n}.glb`))),
+    Promise.all(minis.map((n) => loadNative(`${km}/character-${n}.glb`))),
   ])
+  // Pipeline U roles: Universal Animation Library 1 and 2 clips.
   const shamble: ClipRoles = { idle: 'Zombie_Idle_Loop', walk: 'Zombie_Walk_Fwd_Loop', run: 'Zombie_Walk_Fwd_Loop', attack: 'Zombie_Scratch' }
   const prowl: ClipRoles = { idle: 'Crouch_Idle_Loop', walk: 'Crouch_Fwd_Loop', run: 'Sprint_Loop', attack: 'Zombie_Scratch' }
   const brawl: ClipRoles = { idle: 'Idle_Loop', walk: 'Walk_Loop', run: 'Jog_Fwd_Loop', attack: 'Melee_Hook' }
   const march: ClipRoles = { idle: 'Idle_Loop', walk: 'Walk_Formal_Loop', run: 'Sprint_Loop', attack: 'Punch_Jab' }
-  const cast = (models: THREE.Group[], roles: ClipRoles) => models.map((m) => humanoid(m, library, roles))
-  const walkers = cast([male, female], shamble)
-  const thralls = cast([male, female], prowl)
-  const hunters = cast([withHead(rangerM, male), withHead(rangerF, female)], brawl)
-  const zealots = cast([withHead(peasantM, male), withHead(peasantF, female)], march)
-  const rig = (from: CritterTemplate[], height: number, opts: PaintOpts) => () => buildCritterRig(pick(from), height, opts)
+  const uni = (models: THREE.Group[], roles: ClipRoles) => models.map((m) => humanoid(m, library, roles))
+  // Pipeline N roles: each pack's own clip names.
+  const own = (list: { scene: THREE.Group; library: Map<string, THREE.AnimationClip> }[], roles: ClipRoles) =>
+    list.map((n) => humanoid(n.scene, n.library, roles))
+  const dead = own(zombies, { idle: 'Idle', walk: 'Walk', run: 'Run', attack: ['Idle_Attack', 'Punch', 'Run_Attack', 'Jump'] })
+  // Lis and Matt swing their bat and saw; Sam and Shaun had guns, which stayed in the pack, so they punch.
+  const hands = [
+    ...own(survivors.slice(0, 2), { idle: 'Idle', walk: 'Walk', run: 'Run', attack: 'Slash' }),
+    ...own(survivors.slice(2), { idle: 'Idle', walk: 'Walk', run: 'Run', attack: 'Punch' }),
+  ]
+  const canine = { idle: 'Idle', walk: 'Walk', run: 'Run', attack: 'Attack' }
+  const lope = { idle: 'Idle', walk: 'Walk', run: 'Gallop', attack: 'Attack' }
+  const [shepherd, pug] = own(dogs, canine)
+  const [wolf, husky, fox, shiba] = own(beasts, lope)
+  const folk = own(people, { idle: 'idle', walk: 'walk', run: 'sprint', attack: 'attack-melee-right' })
+  const mini = (ids: string[]) => ids.map((id) => folk[minis.indexOf(id)])
+  const rig = (from: CritterTemplate[], height: number, opts: PaintOpts = {}) => () => buildCritterRig(pick(from), height, { glow: 0.45, ...opts })
+  const looks: Record<FoeLook, () => Rig> = {
+    hunter: rig(uni([withHead(rangerM, male), withHead(rangerF, female)], brawl), 2.25, { tint: 0xf4eee0, tintK: 0.3, bleach: 0.45 }),
+    zealot: rig(uni([withHead(peasantM, male), withHead(peasantF, female)], march), 2.15, { tint: 0x8a2a2a, tintK: 0.4 }),
+    drowned: rig(uni([male, female], shamble), 2.05, { glow: 0.5, tint: 0x5a8a96, tintK: 0.6, bleach: 0.15, eyes: 0x9fe8ff }),
+    tombfed: rig(uni([male, female], shamble), 2.05, { glow: 0.5, tint: 0xa89a7a, tintK: 0.55, bleach: 0.3, eyes: 0xffc860 }),
+    shepherd: rig([shepherd], 1.15),
+    stray: rig([pug, shiba, fox], 0.85),
+    dockhand: rig(hands, 2.2, { tint: 0x40506a, tintK: 0.2 }),
+    barker: rig(mini(['male-a', 'male-c', 'male-e', 'female-d']), 1.75),
+    reveler: rig(mini(['female-b', 'female-f', 'male-b', 'female-e']), 1.7),
+    servant: rig(mini(['male-d', 'male-f', 'female-a', 'female-c']), 1.7, { tint: 0x2a2a3a, tintK: 0.35 }),
+  }
+  const grazing = new Map<string, CritterTemplate>(FAUNA.map((id, i) => [id, { scene: grazers[i].scene, clips: grazers[i].library }]))
+  const FAUNA_H: Record<string, number> = { stag: 2.3, deer: 1.6, horse: 2.4, 'horse-white': 2.4, donkey: 1.8, cow: 1.9 }
   return {
-    walker: rig(walkers, 2.05, { glow: 0.5, tint: 0x6f9a48, tintK: 0.7, bleach: 0.1, eyes: 0xc8ff5a }),
-    thrall: rig(thralls, 2.1, { glow: 0.5, tint: 0xc8bcd8, tintK: 0.5, bleach: 0.35, eyes: 0xff2420 }),
-    hunter: rig(hunters, 2.25, { glow: 0.45, tint: 0xf4eee0, tintK: 0.3, bleach: 0.45 }),
-    zealot: rig(zealots, 2.15, { glow: 0.45, tint: 0x8a2a2a, tintK: 0.3 }),
+    walker: rig(dead, 2.0, { glow: 0.5 }),
+    thrall: rig(uni([male, female], prowl), 2.1, { glow: 0.5, tint: 0xc8bcd8, tintK: 0.5, bleach: 0.35, eyes: 0xff2420 }),
+    hound: rig([wolf, husky], 1.15),
+    look: (name) => looks[name](),
+    alpha: () => buildCritterRig(wolf, 2.4, { glow: 0.5, tint: 0x6a7080, tintK: 0.35, eyes: 0xff3020 }),
+    fauna: (name) => {
+      const t = grazing.get(name)
+      if (!t) return null
+      const idles = ['Idle', 'Eating', 'Idle_2', 'Idle_Headlow'].filter((c) => t.clips.has(c))
+      return buildFlyer(t, FAUNA_H[name] ?? 2, pick(idles), 0.4)
+    },
   }
 }

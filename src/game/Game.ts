@@ -727,7 +727,7 @@ export class Game {
     this.world = buildWorld(this.scene, kenney ? (scene, blocks) => kenney.dress(scene, blocks) : undefined)
     this.yard = buildYard(this.scene, qualityLow())
     this.world.obstacles.push(...this.yard.obstacles)
-    this.mapArt = buildMapArt(this.scene, decor)
+    this.mapArt = buildMapArt(this.scene, decor, kenney ? (name) => kenney.fauna(name) : null)
     this.world.obstacles.push(...this.mapArt.obstacles)
     for (const id of ['crypt', 'fountain'] as const) {
       const node = this.world.nodes[id]
@@ -3678,7 +3678,7 @@ export class Game {
   /** Finds the station in reach, lights it, and keeps the range readouts current. */
   private updateHaven(dt: number): void {
     this.yard.update(dt)
-    this.mapArt.update(dt)
+    this.mapArt.update(dt, this.hero.x, this.hero.z)
     let near: StationDef | null = null
     if (this.inHaven() && !this.hero.dead) {
       let best = STATION_REACH

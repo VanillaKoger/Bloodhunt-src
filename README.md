@@ -11,7 +11,7 @@ This mirror holds the TypeScript under `src/`, configs, scripts, and the free `p
 
 The placeholder zones of every map but the Slums are dressed with props the city already loads, chosen to fit each map: crates, barrels, plank piles, tires, and bollards on the Black Docks; a cart and lantern posts in the Night Market; dumpsters, trash, hydrants, curved street lights, and construction fences in the Mob District's back lots; gravestones, iron fences, candle lanterns, and debris in Hollow Graves; benches and planters in Ashen Manor; candles and torches in the Cathedral; rock piles, torches, and stray bones in the Catacombs; and red-tinted rocks and torches in the Spire. The rest of each zone keeps its primitive props.
 
-`src/game/decor.ts` bakes those props to flat colors once at load, so copies merge into the zone's colored meshes; the list per map is `MODEL` and `THEME_PROPS` in `src/game/mapart.ts`. They add no new pack: every model comes from a pack already listed in `CREDITS.md`. With `?classic=1` (no city packs) every model prop falls back to its primitive.
+`src/game/decor.ts` bakes those props to flat colors once at load, so copies merge into the zone's colored meshes; the list per map is `MODEL` and `THEME_PROPS` in `src/game/mapart.ts`. The Zombie Apocalypse Kit adds trash bags, cinder blocks, a couch, tire stacks, blood stains, and a rooftop water tower to the Mob District; pipes, pallets, and a water tower to the Black Docks; a chest to the Night Market and the Catacombs; and blood stains to Hollow Graves and Ashen Manor. Every model comes from a pack listed in `CREDITS.md`. With `?classic=1` (no city packs) every model prop falls back to its primitive.
 
 ## Pack sources (`art-source/`)
 
@@ -19,11 +19,16 @@ Packs Devon added whole sit in `art-source/<slug>/` with their License files: th
 
 - `public/cc0/quaternius-easy-enemies/rat.glb`: the Rat King's litter. Still plague hounds in stats and behavior; only the look changes. Converted from FBX, on its own clips.
 - `public/cc0/quaternius-animated-monsters/bat.glb`: the Bat Swarm's bats. Converted from FBX, on its own clip.
-- `public/cc0/quaternius-base-characters/`: male and female bodies. Walkers (corpse green, on the UAL2 zombie clips) and feral thralls (pale, crouched, sprinting, red-eyed) pick one at random, on every map.
-- `public/cc0/quaternius-outfits-fantasy/`: the Ranger and Peasant outfits, with the base body's head. In the Cathedral of Dawn the thugs are hunters in bleached Ranger coats and the thralls are zealots in the Peasant outfit (`looks` in `src/game/maps.ts`). Stats and fight stay the kind's.
+- `public/cc0/quaternius-zombie-apocalypse/`: the four zombies are the walkers on every map. The survivors are the Black Docks' dockhands (guns left out), the German Shepherd is the Mob District's guard dogs, and the Pug runs with the Night Market's strays. Its 1920s-fitting props (trash bags, cinder blocks, pallets, a couch, pipes, tire stacks, a water tower, a chest, blood decals) dress the placeholder zones.
+- `public/cc0/quaternius-animated-animals/`: wolves and huskies are the hounds, a great wolf is the Alpha, and the Shiba Inu and fox join the strays. Stags and deer graze in the Blackwood, a horse and a donkey in the Night Market, and horses in Ashen Manor's grounds (`FAUNA` in `src/game/mapart.ts`; only the ones near the hero animate).
+- `public/kenney/mini-characters/`: the Night Market's barkers and masked revelers and Ashen Manor's servants.
+- `public/cc0/quaternius-base-characters/`: male and female bodies. Feral thralls on every map (pale, crouched, sprinting, red-eyed), the Docks' drowned (blue-grey), and the Catacombs' tomb-fed (bone-yellow), the last two on the UAL2 zombie clips.
+- `public/cc0/quaternius-outfits-fantasy/`: the Ranger and Peasant outfits, with the base body's head. In the Cathedral of Dawn the thugs are hunters in bleached Ranger coats and the thralls are zealots in the Peasant outfit.
 - `public/cc0/quaternius-ual/ual-clips.glb`, `public/cc0/quaternius-ual2/ual2-clips.glb`: only the clips those people play.
 
-The Range dummies are a walker and a thrall, so they wear the new bodies too. The other packs in `art-source/` are not wired yet. With `?classic=1` all of these fall back to the old primitives.
+Which map dresses which kind is `looks` in `src/game/maps.ts`; every look keeps its kind's stats and fight. The enemies pick a model at random from their look's set, so a pod is never all one person.
+
+The Range dummies are a walker and a thrall, so they wear the new models too. Every pack in `art-source/` is now used in part; what is not shipped stays there. With `?classic=1` all of these fall back to the old primitives.
 
 ## Free weapon packs
 

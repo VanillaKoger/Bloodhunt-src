@@ -6,7 +6,7 @@ The map decorations in the placeholder zones (`src/game/mapart.ts`, `MODEL`) reu
 
 A short version of this list is at the bottom of the in-game gear menu.
 
-Characters use three animation pipelines that never share clips: **K**, KayKit Rig_Medium clips on KayKit characters (the hero, the skeletons); **U**, Quaternius Universal Animation Library clips on Universal Base Characters and Modular Outfits, which share one skeleton; and **N**, a pack's own clips on its own model (the rat and the bat).
+Characters use three animation pipelines that never share clips: **K**, KayKit Rig_Medium clips on KayKit characters (the hero, the skeletons); **U**, Quaternius Universal Animation Library clips on Universal Base Characters and Modular Outfits, which share one skeleton; and **N**, a pack's own clips on its own model (the rat, the bat, the Zombie Apocalypse Kit people and dogs, the Ultimate Animated Animals, and Kenney Mini Characters).
 
 ## KayKit — Kay Lousberg
 
@@ -70,7 +70,14 @@ Author: Quaternius — https://quaternius.com
   https://quaternius.com
   License: `public/cc0/quaternius-ual2/LICENSE.txt`
 
-  Converted from the packs' glTF exports with glTF Transform: color maps only, downscaled to 1K (eyes and brows 512); the normal, roughness, and ORM maps are dropped. Bodies and outfits are decimated with meshoptimizer. The animation libraries keep only the clips above, without the mannequin mesh. The full packs stay in `art-source/` and are not deployed.
+- Zombie Apocalypse Kit (free) — the four zombies are the walkers on every map; Lis, Matt, Sam, and Shaun (single-weapon versions) are the Black Docks' dockhands, with the pistol, SMG, and knife left out so they swing a bat, a saw, or their fists; the German Shepherd is the Mob District's guard dogs and the Pug runs with the Night Market's strays. Each on its own clips, pipeline N. Props for the map decorations: barrels, cinder blocks, a couch, pallets, pipes, trash bags, a stack of tires, a water tower, a chest, and blood decals. The vehicles, weapons, traffic gear, shipping containers, and street-sign props are not shipped.
+  https://quaternius.com
+  License: `public/cc0/quaternius-zombie-apocalypse/LICENSE.txt` (the pack's own CC0 license file; its header names another Quaternius pack, the text is CC0 1.0)
+- Ultimate Animated Animal Pack (free) — the wolf and husky are the hounds; the Shiba Inu and fox join the Night Market's strays; a great wolf is the Alpha. The stag, deer, horses, donkey, and cow graze in the Blackwood, the Night Market, and Ashen Manor. Each on its own clips, pipeline N.
+  https://quaternius.com
+  License: `public/cc0/quaternius-animated-animals/LICENSE.txt`
+
+  Converted from the packs' glTF exports with glTF Transform: color maps only, downscaled to 1K (eyes and brows 512); the normal, roughness, and ORM maps are dropped. Bodies and outfits are decimated with meshoptimizer. The animation libraries keep only the clips above, without the mannequin mesh. The Zombie Apocalypse Kit and Animated Animals characters keep only the clips the game plays (idle, walk, run, attack; idles for the grazing animals) and keep their own 512 atlas or flat colors. The full packs stay in `art-source/` and are not deployed.
 
 ## Atomic Realm
 
@@ -104,7 +111,7 @@ The street surface uses these CC0 maps only. Color maps are 1K. Normal maps are 
 Author: Kenney — https://www.kenney.nl. All CC0; each folder under `public/kenney/` keeps its `License.txt`. Only the files listed in `public/kenney/PACKS.txt` are shipped.
 
 - Graveyard Kit by Kenney ([www.kenney.nl](https://www.kenney.nl)) — CC0 — https://kenney.nl/assets/graveyard-kit
-  The zombie (plague walker, and the bosses built on it), the vampire (feral thrall), and the ghost (miasma); fences, iron fence, candle lantern, debris, and rocks in the Slums, the graves, and the catacombs.
+  The zombie (the Rat King and the bosses built on it), the vampire (the Countess and the Elder), and the ghost (miasma); fences, iron fence, candle lantern, debris, and rocks in the Slums, the graves, and the catacombs.
 - Blocky Characters by Kenney ([www.kenney.nl](https://www.kenney.nl)) — CC0 — https://kenney.nl/assets/blocky-characters
   The mob thug, the enforcer, and the Don.
 - Retro Urban Kit by Kenney ([www.kenney.nl](https://www.kenney.nl)) — CC0 — https://kenney.nl/assets/retro-urban-kit
@@ -122,6 +129,8 @@ Author: Kenney — https://www.kenney.nl. All CC0; each folder under `public/ken
 - Holiday Kit by Kenney ([www.kenney.nl](https://www.kenney.nl)) — CC0 — https://kenney.nl/assets/holiday-kit
   A string of colored lights.
 - Cube Pets by Kenney ([www.kenney.nl](https://www.kenney.nl)) — CC0 — https://kenney.nl/assets/cube-pets
-  The fox (plague hound, and the Alpha).
+  The fox, as alley wildlife.
 - Fantasy Town Kit by Kenney ([www.kenney.nl](https://www.kenney.nl)) — CC0 — https://kenney.nl/assets/fantasy-town-kit
   A lantern post and a cart.
+- Mini Characters by Kenney ([www.kenney.nl](https://www.kenney.nl)) — CC0 — https://kenney.nl/assets/mini-characters
+  The twelve characters are the Night Market's barkers and masked revelers and the Ashen Manor's servants, on their own idle, walk, sprint, and melee clips (pipeline N). Shipped as the pack's own GLBs with only those clips kept and the color map embedded. The mobility aids are not shipped.

@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { bakeDecor, type DecorLib } from './decor'
-import { buildCritterRig, buildFlyer, loadCritter, loadUniversal, type Flyer } from './critters'
+import { buildCritterRig, buildFlyer, loadCast, loadCritter, type Flyer } from './critters'
 import type { FoeLook } from './types'
 import { DECOR_NAMES } from './mapart'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
@@ -45,8 +45,10 @@ export interface KenneyLib {
   rat(): Rig
   /** One bat of the Bat Swarm: the Quaternius Animated Monster bat, flapping on its own clip. */
   bat(): Flyer
-  /** A map's own look for a foe (maps.ts `looks`): Universal humanoids in Modular Outfits. */
+  /** A map's own look for a foe (maps.ts `looks`), from the cast in critters.ts. */
   look(name: FoeLook): Rig
+  /** A grazing animal for the map art (Ultimate Animated Animals). */
+  fauna(name: string): Flyer | null
   dress(scene: THREE.Scene, blocks: AlleyBlock[]): void
   /** Fade buildings and barriers that sit between the camera and the hero. */
   fadeBlockers(camera: THREE.Camera, x: number, z: number, dt: number, active: boolean): void
@@ -1668,19 +1670,18 @@ export async function loadKenney(): Promise<KenneyLib> {
   const pets = 'kenney/cube-pets'
   const holiday = 'kenney/holiday-kit'
   const blocky = 'kenney/blocky-characters'
-  const [graveMap, zombie, ghost, vampire, fox, suitB, suitE, suitH, kay, ratT, batT, uni] = await Promise.all([
+  const [graveMap, zombie, ghost, vampire, suitB, suitE, suitH, kay, ratT, batT, uni] = await Promise.all([
     loadTexture(`${grave}/Textures/colormap.png`),
     loadActor(`${grave}/character-zombie.glb`),
     loadActor(`${grave}/character-ghost.glb`),
     loadActor(`${grave}/character-vampire.glb`),
-    loadActor(`${pets}/animal-fox.glb`),
     loadActor(`${blocky}/character-b.glb`),
     loadActor(`${blocky}/character-e.glb`),
     loadActor(`${blocky}/character-h.glb`),
     loadKaykit(),
     loadCritter('cc0/quaternius-easy-enemies/rat.glb'),
     loadCritter('cc0/quaternius-animated-monsters/bat.glb'),
-    loadUniversal(),
+    loadCast(),
   ])
   const packs = await Promise.all([
     loadProps(
@@ -1775,6 +1776,13 @@ export async function loadKenney(): Promise<KenneyLib> {
       ),
       0.38,
     ),
+    // Quaternius Zombie Apocalypse Kit: only the props that fit a 1920s night (decor only).
+    loadProps(
+      ['Barrel', 'CinderBlock', 'Couch', 'Pallet', 'Pallet_Broken', 'Pipes', 'TrashBag_1', 'TrashBag_2', 'Wheels_Stack', 'WaterTower', 'Chest', 'Blood_1', 'Blood_2', 'Blood_3'].map(
+        (name) => `cc0/quaternius-zombie-apocalypse/props/${name}.glb`,
+      ),
+      0.4,
+    ),
   ])
   const props = Object.assign({}, ...packs) as Record<string, Prep>
   const townhouse = props.building_G_withoutBase
@@ -1786,7 +1794,8 @@ export async function loadKenney(): Promise<KenneyLib> {
     decor: bakeDecor(props, DECOR_NAMES),
     rat: () => buildCritterRig(ratT, 0.42, { glow: 0.42, tint: 0x8a9a6a }),
     bat: () => buildFlyer(batT, 0.32),
-    look: (name) => uni[name](),
+    look: (name) => uni.look(name),
+    fauna: (name) => uni.fauna(name),
     dress: (scene, blocks) => {
       dressAlley(scene, blocks, props)
       if (MOB_ARENA) dressMob(scene, props)
@@ -1799,7 +1808,7 @@ export async function loadKenney(): Promise<KenneyLib> {
     fadeBlockers,
     drift: (dt) => driftCity(dt),
     hero: () => kay.hero(),
-    hound: () => buildActor(fox, graveMap, LOOK.hound),
+    hound: () => uni.hound(),
     walker: () => uni.walker(),
     thrall: () => uni.thrall(),
     spitter: () => buildActor(ghost, graveMap, LOOK.spitter),
@@ -1809,8 +1818,10 @@ export async function loadKenney(): Promise<KenneyLib> {
     enforcer: () => buildActor(suitB, graveMap, LOOK.enforcer),
     don: () => buildActor(suitE, graveMap, LOOK.don),
     rival: (base, look) => {
-      const template = { zombie, ghost, vampire, fox, suitB, suitE, suitH }[base]
-      const from = base === 'fox' ? LOOK.hound : base.startsWith('suit') ? LOOK.don : base === 'ghost' ? LOOK.spitter : LOOK.boss
+      // The Alpha is a great wolf from Ultimate Animated Animals, on its own clips.
+      if (base === 'fox') return uni.alpha()
+      const template = { zombie, ghost, vampire, suitB, suitE, suitH }[base]
+      const from = base.startsWith('suit') ? LOOK.don : base === 'ghost' ? LOOK.spitter : LOOK.boss
       return buildActor(template, graveMap, {
         ...from,
         fedora: false,

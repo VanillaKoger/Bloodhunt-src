@@ -738,8 +738,6 @@ const CATHEDRAL = placeholderMap(
   },
   { fog: 0x1a1a24, floor: 0x5a5660, ground: 0x18181e, wall: 0x7a7480, accent: 0xffe080, pattern: 'marble', wallStyle: 'stone' },
 )
-// Hunters in Ranger coats, bleached white; zealots in the Peasant outfit.
-CATHEDRAL.looks = { thug: 'hunter', thrall: 'zealot' }
 
 const CATACOMBS = placeholderMap(
   8,
@@ -794,6 +792,15 @@ const SPIRE = placeholderMap(
   },
   { fog: 0x200810, floor: 0x3a1a20, ground: 0x18060a, wall: 0x2a0e14, accent: 0xff2040, pattern: 'marble', wallStyle: 'stone' },
 )
+
+// Each map's own people and beasts (critters.ts loadCast). Kinds left out keep their usual model.
+MOB.looks = { hound: 'shepherd' }
+DOCKS.looks = { thug: 'dockhand', walker: 'drowned' }
+MARKET.looks = { hound: 'stray', thug: 'barker', thrall: 'reveler' }
+MANOR.looks = { thrall: 'servant' }
+// Hunters in Ranger coats, bleached white; zealots in the Peasant outfit.
+CATHEDRAL.looks = { thug: 'hunter', thrall: 'zealot' }
+CATACOMBS.looks = { walker: 'tombfed' }
 
 export const MAPS: Record<MapId, MapDef> = {
   slums: SLUMS,

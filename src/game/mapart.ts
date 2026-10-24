@@ -18,8 +18,12 @@ import { ZONE1 } from './world'
 export interface MapArtHandle {
   /** Round blockers the hero and enemies walk around. */
   obstacles: { x: number; z: number; r: number }[]
-  update(dt: number): void
+  /** Veils pulse; grazing animals near (x, z) play their idles. */
+  update(dt: number, x?: number, z?: number): void
 }
+
+/** An animated grazing animal (critters.ts), or null when the packs did not load. */
+export type FaunaMaker = (name: string) => { object: THREE.Object3D; mixer: THREE.AnimationMixer } | null
 
 const matCache = new Map<string, THREE.MeshLambertMaterial>()
 const SELF_LIT = 0.35
@@ -492,14 +496,26 @@ interface ModelProp {
   else?: string
   /** Square to the walls instead of turned at random. */
   square?: boolean
+  /** Sized by its width instead of its height: for flat decals. */
+  flat?: boolean
 }
 
 const MODEL: Record<string, ModelProp> = {
   // Kenney Platformer Kit, KayKit City Builder Bits, Atomic Realm Post-Apocalyptic Starter
-  'm-barrel': { ids: ['barrel', 'apo-barrel'], h: [0.9, 1.05], block: 0.5, else: 'barrel' },
+  'm-barrel': { ids: ['barrel', 'apo-barrel', 'Barrel'], h: [0.9, 1.05], block: 0.5, else: 'barrel' },
   'm-crate': { ids: ['crate', 'apo-box', 'box_A'], h: [0.7, 0.9], block: 0.6, else: 'crate' },
   'm-planks': { ids: ['apo-planks'], h: [0.25, 0.35], block: 0.4 },
   'm-tire': { ids: ['apo-tire'], h: [0.3, 0.4], block: 0.45 },
+  // Quaternius Zombie Apocalypse Kit
+  'm-trashbag': { ids: ['TrashBag_1', 'TrashBag_2'], h: [0.45, 0.65], block: 0.4 },
+  'm-cinder': { ids: ['CinderBlock'], h: [0.22, 0.3], block: 0.35 },
+  'm-couch': { ids: ['Couch'], h: [0.8, 0.9], block: 0.45, else: 'sofa' },
+  'm-pallet': { ids: ['Pallet', 'Pallet_Broken'], h: [0.14, 0.2], block: 0.3, else: 'pallet' },
+  'm-pipes': { ids: ['Pipes'], h: [0.55, 0.75], block: 0.45 },
+  'm-tire-stack': { ids: ['Wheels_Stack'], h: [0.8, 1.0], block: 0.45 },
+  'm-water-tower': { ids: ['WaterTower'], h: [5.2, 6.0], block: 0.25 },
+  'm-chest': { ids: ['Chest'], h: [0.55, 0.7], block: 0.4 },
+  'm-blood': { ids: ['Blood_1', 'Blood_2', 'Blood_3'], h: [1.0, 1.6], block: 0, flat: true },
   // Kenney Fantasy Town Kit
   'm-cart': { ids: ['cart'], h: [1.2, 1.4], block: 0.45, else: 'cart' },
   // KayKit City Builder Bits, Kenney Retro Urban Kit
@@ -564,9 +580,10 @@ function modelProp(b: Bucket, spec: ModelProp, s: Spot, map: MapId): number {
   const model = decor?.get(spec.ids[Math.floor(rand() * spec.ids.length)])
   if (!model) return -1
   const height = spec.h[0] + rand() * (spec.h[1] - spec.h[0])
-  const k = height / Math.max(0.01, model.size.y)
+  const k = height / Math.max(0.01, spec.flat ? Math.max(model.size.x, model.size.z) : model.size.y)
   const turn = spec.square ? Math.floor(rand() * 4) * (Math.PI / 2) : rand() * Math.PI * 2
-  const m = new THREE.Matrix4().makeRotationY(turn).scale(new THREE.Vector3(k, k, k)).setPosition(s.x, 0, s.z)
+  // Decals sit just over the zone floor, which is laid a little above y = 0.
+  const m = new THREE.Matrix4().makeRotationY(turn).scale(new THREE.Vector3(k, k, k)).setPosition(s.x, spec.flat ? 0.03 : 0, s.z)
   for (const part of model.parts) {
     const g = part.geo.clone()
     g.applyMatrix4(m)
@@ -580,16 +597,30 @@ function modelProp(b: Bucket, spec: ModelProp, s: Spot, map: MapId): number {
  * side, ground scatter]. Names starting `m-` are models (MODEL above).
  */
 const THEME_PROPS: Record<string, [string[], string[], string[]]> = {
-  mob: [['m-crate', 'm-dumpster', 'pallet', 'm-barrel', 'm-roadblock', 'sofa', 'table', 'm-trash', 'm-hydrant', 'm-tire'], ['m-street-light'], []],
-  docks: [['m-crate', 'm-barrel', 'm-bollard', 'pallet', 'm-planks', 'm-tire', 'm-crate'], ['m-lantern-post', 'lamp'], []],
-  market: [['stall', 'm-cart', 'm-barrel', 'm-crate', 'stall', 'm-crate'], ['m-lantern-post'], []],
+  mob: [
+    ['m-crate', 'm-dumpster', 'm-pallet', 'm-barrel', 'm-roadblock', 'm-couch', 'table', 'm-trash', 'm-hydrant', 'm-tire', 'm-trashbag', 'm-cinder', 'm-tire-stack'],
+    ['m-street-light', 'm-water-tower'],
+    ['m-blood'],
+  ],
+  docks: [['m-crate', 'm-barrel', 'm-bollard', 'm-pallet', 'm-planks', 'm-tire', 'm-crate', 'm-pipes', 'm-tire-stack'], ['m-lantern-post', 'lamp', 'm-water-tower'], []],
+  market: [['stall', 'm-cart', 'm-barrel', 'm-crate', 'stall', 'm-crate', 'm-chest', 'm-trashbag'], ['m-lantern-post'], []],
   wilds: [['rock', 'log', 'bush', 'shroom', 'bush', 'm-rocks', 'm-debris'], ['tree', 'tree', 'deadTree'], []],
-  graves: [['tomb', 'cross', 'm-gravestone', 'coffin', 'm-fence', 'm-grave-lantern', 'm-debris'], ['deadTree', 'crypt', 'm-lantern-post'], ['m-bone']],
-  manor: [['hedge', 'm-bench', 'statue', 'hedge', 'm-planter'], ['statue', 'm-lantern-post', 'fountain'], []],
+  graves: [['tomb', 'cross', 'm-gravestone', 'coffin', 'm-fence', 'm-grave-lantern', 'm-debris'], ['deadTree', 'crypt', 'm-lantern-post'], ['m-bone', 'm-blood']],
+  manor: [['hedge', 'm-bench', 'statue', 'hedge', 'm-planter'], ['statue', 'm-lantern-post', 'fountain'], ['m-blood']],
   cathedral: [['pew', 'm-candles', 'pew', 'statue'], ['pillar', 'pillar', 'altar', 'm-torch'], []],
-  catacombs: [['bones', 'sarcophagus', 'bones', 'm-torch', 'm-candles', 'm-rocks'], ['pillar', 'sarcophagus'], ['m-bone']],
+  catacombs: [['bones', 'sarcophagus', 'bones', 'm-torch', 'm-candles', 'm-rocks', 'm-chest'], ['pillar', 'sarcophagus'], ['m-bone']],
   spire: [['pool', 'brazier', 'crystal', 'statue', 'm-rocks'], ['crystal', 'pillar', 'm-torch'], []],
 }
+
+/** Animals that graze in a map's zones (Quaternius Ultimate Animated Animals), a few per zone. */
+const FAUNA: Partial<Record<MapId, string[]>> = {
+  wilds: ['stag', 'deer', 'deer'],
+  market: ['horse', 'donkey'],
+  manor: ['horse-white', 'horse'],
+}
+
+/** Where the zones put their animals, for buildMapArt to fill once the art is laid. */
+let faunaSpots: { name: string; x: number; z: number; yaw: number }[] = []
 
 /** Draws a named prop, model or primitive. Returns its blocking radius. */
 function drawProp(b: Bucket, name: string, s: Spot, p: Palette, map: MapId): number {
@@ -639,6 +670,20 @@ function zoneArt(group: THREE.Group, map: MapDef, zone: ZoneDef, index: number, 
   const want = Math.round(area / 16)
   const placed: { x: number; z: number }[] = []
   seed = 1009 + index * 97 + map.id.length * 13
+  // Grazing animals first, so the props settle around them; kept a little wider of the pods than props are.
+  for (const name of FAUNA[map.id] ?? []) {
+    for (let tries = 0; tries < 40; tries++) {
+      const r = zone.rooms[Math.floor(rand() * zone.rooms.length)]
+      const x = r.x0 + 2 + rand() * (r.x1 - r.x0 - 4)
+      const z = r.z0 + 2 + rand() * (r.z1 - r.z0 - 4)
+      if (keep.some((k) => Math.hypot(k.x - x, k.z - z) < 4.5)) continue
+      if (placed.some((q) => Math.hypot(q.x - x, q.z - z) < 2.6)) continue
+      placed.push({ x, z })
+      faunaSpots.push({ name, x, z, yaw: rand() * Math.PI * 2 })
+      obstacles.push({ x, z, r: 0.7 })
+      break
+    }
+  }
   for (let tries = 0; tries < want * 12 && placed.length < want; tries++) {
     const r = zone.rooms[Math.floor(rand() * zone.rooms.length)]
     const x = r.x0 + 1.2 + rand() * (r.x1 - r.x0 - 2.4)
@@ -675,8 +720,9 @@ function slumGates(group: THREE.Group, b: Bucket, veils: THREE.MeshBasicMaterial
   sealedGate(b, group, { x: -1.25, z: ZONE1.z1 + 0.15, axis: 'x', span: 2.7 }, p, veils)
 }
 
-export function buildMapArt(scene: THREE.Scene, models: DecorLib | null = null): MapArtHandle {
+export function buildMapArt(scene: THREE.Scene, models: DecorLib | null = null, fauna: FaunaMaker | null = null): MapArtHandle {
   decor = models
+  faunaSpots = []
   const group = new THREE.Group()
   group.name = 'map-art'
   const veils: THREE.MeshBasicMaterial[] = []
@@ -706,13 +752,27 @@ export function buildMapArt(scene: THREE.Scene, models: DecorLib | null = null):
     })
   })
   scene.add(group)
+  const herd: { x: number; z: number; mixer: THREE.AnimationMixer }[] = []
+  for (const s of fauna ? faunaSpots : []) {
+    const animal = fauna!(s.name)
+    if (!animal) continue
+    animal.object.position.set(s.x, 0, s.z)
+    animal.object.rotation.y = s.yaw
+    // They stand still, so their bounds hold: let the camera skip the ones out of view.
+    animal.object.traverse((o) => (o.frustumCulled = true))
+    group.add(animal.object)
+    herd.push({ x: s.x, z: s.z, mixer: animal.mixer })
+  }
   let t = 0
   return {
     obstacles,
-    update(dt) {
+    update(dt, x, z) {
       t += dt
       const o = 0.16 + Math.sin(t * 2.2) * 0.07
       for (const v of veils) v.opacity = o
+      // Only the animals near the hero move: the rest are out of sight on other maps.
+      if (x == null || z == null) return
+      for (const h of herd) if (Math.abs(h.x - x) < 40 && Math.abs(h.z - z) < 40) h.mixer.update(dt)
     },
   }
 }

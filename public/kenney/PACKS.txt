@@ -47,8 +47,13 @@ Used
 
 - Cube Pets 1.0 (CC0) — Kenney
   https://kenney.nl/assets/cube-pets
-  animal-fox as alley wildlife, and tinted sickly as the plague hound.
+  animal-fox as alley wildlife.
   License: cube-pets/License.txt
+
+- Mini Characters 1.0 (CC0) — Kenney
+  https://kenney.nl/assets/mini-characters
+  character-female-a..f and character-male-a..f as the Night Market's barkers and revelers and the Ashen Manor's servants. Only idle, walk, sprint, and attack-melee-right are kept; colormap embedded.
+  License: mini-characters/License.txt
 
 - Fantasy Town Kit 2.0 (CC0) — Kenney
   https://kenney.nl/assets/fantasy-town-kit
