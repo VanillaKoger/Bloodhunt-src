@@ -68,7 +68,7 @@ import {
 } from './models'
 import { loadSave, takeOfflineGains, wipeSave, writeSave } from './save'
 import { Sfx } from './sfx'
-import type { EnemyKind, NightSave, SaveData, SkillId, Slot } from './types'
+import type { EnemyKind, FoeLook, NightSave, SaveData, SkillId, Slot } from './types'
 import {
   DAWN_WARN,
   DISTRICT_IDS,
@@ -4475,12 +4475,14 @@ export class Game {
     kind: Exclude<EnemyKind, 'boss' | 'don'>,
     x: number,
     z: number,
-    opts?: { pod?: number; returns?: boolean; look?: 'rat' },
+    opts?: { pod?: number; returns?: boolean; look?: 'rat' | FoeLook },
   ): Actor {
-    // A look swaps the model only; the kind keeps its stats and fight. The Rat King's litter are rats.
-    const rat = opts?.look === 'rat' && this.kenney
-    const rig = rat ? this.kenney!.rat() : this.kenney ? this.kenney[kind]() : FALLBACK[kind]()
-    const tint = this.night && !rat ? MAPS[this.night.district].tints[kind] : undefined
+    // A look swaps the model only; the kind keeps its stats and fight. The Rat King's litter are rats,
+    // and a map can dress a kind its own way (the Cathedral's hunters and zealots).
+    const look = opts?.look ?? (this.night ? MAPS[this.night.district].looks?.[kind as Foe] : undefined)
+    const own = look != null && this.kenney != null
+    const rig = !this.kenney ? FALLBACK[kind]() : look === 'rat' ? this.kenney.rat() : look ? this.kenney.look(look) : this.kenney[kind]()
+    const tint = this.night && !own ? MAPS[this.night.district].tints[kind] : undefined
     if (tint != null) tintRig(rig, tint)
     const def = ENEMIES[kind]
     const stats = enemyStats(kind, this.steps(), this.bite(), this.tough())
@@ -5506,7 +5508,7 @@ export class Game {
         this.persist()
       },
       /** Drops one enemy of a kind on a spot, for close looks at a model. */
-      spawn: (kind: Foe, x: number, z: number, look?: 'rat') => {
+      spawn: (kind: Foe, x: number, z: number, look?: 'rat' | FoeLook) => {
         const e = this.spawnEnemy(kind, x, z, { look })
         e.intro = 999
         return e.id

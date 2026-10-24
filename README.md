@@ -15,12 +15,15 @@ The placeholder zones of every map but the Slums are dressed with props the city
 
 ## Pack sources (`art-source/`)
 
-Packs Devon added whole sit in `art-source/<slug>/` with their License files: the Blend, FBX, OBJ, and preview files that never deploy. `public/cc0/<slug>/` holds only what the game loads, with the pack's `LICENSE.txt` beside it. Today two creatures load from there, both converted from FBX to GLB and playing their own clips (`src/game/critters.ts`):
+Packs Devon added whole sit in `art-source/<slug>/` with their License files: the Blend, FBX, OBJ, and preview files that never deploy. `public/cc0/<slug>/` holds only what the game loads, with the pack's `LICENSE.txt` beside it. Loaded from there (`src/game/critters.ts`):
 
-- `public/cc0/quaternius-easy-enemies/rat.glb`: the Rat King's litter. Still plague hounds in stats and behavior; only the look changes.
-- `public/cc0/quaternius-animated-monsters/bat.glb`: the Bat Swarm's bats.
+- `public/cc0/quaternius-easy-enemies/rat.glb`: the Rat King's litter. Still plague hounds in stats and behavior; only the look changes. Converted from FBX, on its own clips.
+- `public/cc0/quaternius-animated-monsters/bat.glb`: the Bat Swarm's bats. Converted from FBX, on its own clip.
+- `public/cc0/quaternius-base-characters/`: male and female bodies. Walkers (corpse green, on the UAL2 zombie clips) and feral thralls (pale, crouched, sprinting, red-eyed) pick one at random, on every map.
+- `public/cc0/quaternius-outfits-fantasy/`: the Ranger and Peasant outfits, with the base body's head. In the Cathedral of Dawn the thugs are hunters in bleached Ranger coats and the thralls are zealots in the Peasant outfit (`looks` in `src/game/maps.ts`). Stats and fight stay the kind's.
+- `public/cc0/quaternius-ual/ual-clips.glb`, `public/cc0/quaternius-ual2/ual2-clips.glb`: only the clips those people play.
 
-The other packs in `art-source/` are not wired yet. With `?classic=1` both creatures fall back to the old primitives.
+The Range dummies are a walker and a thrall, so they wear the new bodies too. The other packs in `art-source/` are not wired yet. With `?classic=1` all of these fall back to the old primitives.
 
 ## Free weapon packs
 

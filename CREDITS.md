@@ -6,6 +6,8 @@ The map decorations in the placeholder zones (`src/game/mapart.ts`, `MODEL`) reu
 
 A short version of this list is at the bottom of the in-game gear menu.
 
+Characters use three animation pipelines that never share clips: **K**, KayKit Rig_Medium clips on KayKit characters (the hero, the skeletons); **U**, Quaternius Universal Animation Library clips on Universal Base Characters and Modular Outfits, which share one skeleton; and **N**, a pack's own clips on its own model (the rat and the bat).
+
 ## KayKit — Kay Lousberg
 
 Author: Kay Lousberg — https://www.kaylousberg.com
@@ -55,6 +57,20 @@ Author: Quaternius — https://quaternius.com
 - Animated Monster Pack (free) — the bat, as the Bat Swarm. Its own skeleton and its flying clip, pipeline N. Converted from the pack's FBX to GLB with FBX2glTF; only the bat ships.
   https://quaternius.com
   License: `public/cc0/quaternius-animated-monsters/LICENSE.txt`
+- Universal Base Characters, **Standard** (free) tier only — the male and female bodies are the walkers and feral thralls, and their heads, eyes, and brows top the outfits below. Pipeline U.
+  https://quaternius.com
+  License: `public/cc0/quaternius-base-characters/LICENSE.txt`
+- Modular Character Outfits – Fantasy, **Standard** (free) tier only — the Ranger outfit is the Cathedral's hunters, bleached white; the Peasant outfit is its zealots. Pipeline U.
+  https://quaternius.com
+  License: `public/cc0/quaternius-outfits-fantasy/LICENSE.txt`
+- Universal Animation Library, **Standard** — Idle, Walk, Walk Formal, Jog, Sprint, Crouch Idle, Crouch Walk, Punch Jab, and Punch Cross. Pipeline U.
+  https://quaternius.com
+  License: `public/cc0/quaternius-ual/LICENSE.txt`
+- Universal Animation Library 2, **Standard** — Zombie Idle, Zombie Walk, Zombie Scratch, and Melee Hook. Pipeline U.
+  https://quaternius.com
+  License: `public/cc0/quaternius-ual2/LICENSE.txt`
+
+  Converted from the packs' glTF exports with glTF Transform: color maps only, downscaled to 1K (eyes and brows 512); the normal, roughness, and ORM maps are dropped. Bodies and outfits are decimated with meshoptimizer. The animation libraries keep only the clips above, without the mannequin mesh. The full packs stay in `art-source/` and are not deployed.
 
 ## Atomic Realm
 

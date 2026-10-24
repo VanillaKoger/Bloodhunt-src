@@ -13,6 +13,9 @@ export type SkillId = 'bats' | 'drain' | 'dash' | 'nova'
 
 export type EnemyKind = 'hound' | 'walker' | 'thrall' | 'spitter' | 'skeleton' | 'boss' | 'thug' | 'enforcer' | 'don'
 
+/** A model a map swaps in for one of its foes. The foe keeps its kind's stats and fight. */
+export type FoeLook = 'hunter' | 'zealot'
+
 export const STATS: Stat[] = ['strength', 'vitality', 'agility', 'sorcery']
 
 export const SLOTS: Slot[] = ['weapon', 'cape', 'coat', 'boots']

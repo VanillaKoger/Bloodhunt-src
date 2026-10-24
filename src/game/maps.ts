@@ -1,4 +1,5 @@
 import type { Foe } from './balance'
+import type { FoeLook } from './types'
 import { MOB_ARRIVE, MOB_Z, NORTH_ALLEY_SHIFT, SLUM_POCKETS, SLUM_ROOMS, ZONE1, ZONE2, ZONE3, HERO_START, type SlumRect } from './world'
 
 /**
@@ -115,6 +116,8 @@ export interface MapDef {
   tints: Partial<Record<Foe, number>>
   /** What each foe is called here, for the board's roster line. */
   names: Partial<Record<Foe, string>>
+  /** Foes that wear their own model here instead of their kind's (critters.ts). Stats and fight stay the kind's. */
+  looks?: Partial<Record<Foe, FoeLook>>
   boss: BossDef
   palette: Palette
   /** Falls of the boss before the next map opens. */
@@ -735,6 +738,8 @@ const CATHEDRAL = placeholderMap(
   },
   { fog: 0x1a1a24, floor: 0x5a5660, ground: 0x18181e, wall: 0x7a7480, accent: 0xffe080, pattern: 'marble', wallStyle: 'stone' },
 )
+// Hunters in Ranger coats, bleached white; zealots in the Peasant outfit.
+CATHEDRAL.looks = { thug: 'hunter', thrall: 'zealot' }
 
 const CATACOMBS = placeholderMap(
   8,

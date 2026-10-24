@@ -1,7 +1,8 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { bakeDecor, type DecorLib } from './decor'
-import { buildCritterRig, buildFlyer, loadCritter, type Flyer } from './critters'
+import { buildCritterRig, buildFlyer, loadCritter, loadUniversal, type Flyer } from './critters'
+import type { FoeLook } from './types'
 import { DECOR_NAMES } from './mapart'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import type { ClawSpec, KenneyAnimState, KenneyDriver, Rig } from './models'
@@ -44,6 +45,8 @@ export interface KenneyLib {
   rat(): Rig
   /** One bat of the Bat Swarm: the Quaternius Animated Monster bat, flapping on its own clip. */
   bat(): Flyer
+  /** A map's own look for a foe (maps.ts `looks`): Universal humanoids in Modular Outfits. */
+  look(name: FoeLook): Rig
   dress(scene: THREE.Scene, blocks: AlleyBlock[]): void
   /** Fade buildings and barriers that sit between the camera and the hero. */
   fadeBlockers(camera: THREE.Camera, x: number, z: number, dt: number, active: boolean): void
@@ -1665,7 +1668,7 @@ export async function loadKenney(): Promise<KenneyLib> {
   const pets = 'kenney/cube-pets'
   const holiday = 'kenney/holiday-kit'
   const blocky = 'kenney/blocky-characters'
-  const [graveMap, zombie, ghost, vampire, fox, suitB, suitE, suitH, kay, ratT, batT] = await Promise.all([
+  const [graveMap, zombie, ghost, vampire, fox, suitB, suitE, suitH, kay, ratT, batT, uni] = await Promise.all([
     loadTexture(`${grave}/Textures/colormap.png`),
     loadActor(`${grave}/character-zombie.glb`),
     loadActor(`${grave}/character-ghost.glb`),
@@ -1677,6 +1680,7 @@ export async function loadKenney(): Promise<KenneyLib> {
     loadKaykit(),
     loadCritter('cc0/quaternius-easy-enemies/rat.glb'),
     loadCritter('cc0/quaternius-animated-monsters/bat.glb'),
+    loadUniversal(),
   ])
   const packs = await Promise.all([
     loadProps(
@@ -1782,6 +1786,7 @@ export async function loadKenney(): Promise<KenneyLib> {
     decor: bakeDecor(props, DECOR_NAMES),
     rat: () => buildCritterRig(ratT, 0.42, { glow: 0.42, tint: 0x8a9a6a }),
     bat: () => buildFlyer(batT, 0.32),
+    look: (name) => uni[name](),
     dress: (scene, blocks) => {
       dressAlley(scene, blocks, props)
       if (MOB_ARENA) dressMob(scene, props)
@@ -1795,8 +1800,8 @@ export async function loadKenney(): Promise<KenneyLib> {
     drift: (dt) => driftCity(dt),
     hero: () => kay.hero(),
     hound: () => buildActor(fox, graveMap, LOOK.hound),
-    walker: () => buildActor(zombie, graveMap, LOOK.walker),
-    thrall: () => buildActor(vampire, graveMap, LOOK.thrall),
+    walker: () => uni.walker(),
+    thrall: () => uni.thrall(),
     spitter: () => buildActor(ghost, graveMap, LOOK.spitter),
     skeleton: () => kay.skeleton(),
     boss: () => buildActor(zombie, graveMap, LOOK.boss),
