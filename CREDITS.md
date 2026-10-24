@@ -49,6 +49,12 @@ Author: Quaternius — https://quaternius.com
 - Cyberpunk Game Kit signs — three small alley signs
   https://poly.pizza/m/rsZJjigt1X
   License: `public/cc0/License-signs.txt`
+- Easy Enemy Pack (free) — the rat, as the Rat King's litter. Its own skeleton and clips (idle, walk, run, attack), pipeline N. Converted from the pack's FBX to GLB with FBX2glTF; only the rat ships.
+  https://quaternius.com
+  License: `public/cc0/quaternius-easy-enemies/LICENSE.txt`
+- Animated Monster Pack (free) — the bat, as the Bat Swarm. Its own skeleton and its flying clip, pipeline N. Converted from the pack's FBX to GLB with FBX2glTF; only the bat ships.
+  https://quaternius.com
+  License: `public/cc0/quaternius-animated-monsters/LICENSE.txt`
 
 ## Atomic Realm
 

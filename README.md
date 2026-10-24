@@ -13,6 +13,15 @@ The placeholder zones of every map but the Slums are dressed with props the city
 
 `src/game/decor.ts` bakes those props to flat colors once at load, so copies merge into the zone's colored meshes; the list per map is `MODEL` and `THEME_PROPS` in `src/game/mapart.ts`. They add no new pack: every model comes from a pack already listed in `CREDITS.md`. With `?classic=1` (no city packs) every model prop falls back to its primitive.
 
+## Pack sources (`art-source/`)
+
+Packs Devon added whole sit in `art-source/<slug>/` with their License files: the Blend, FBX, OBJ, and preview files that never deploy. `public/cc0/<slug>/` holds only what the game loads, with the pack's `LICENSE.txt` beside it. Today two creatures load from there, both converted from FBX to GLB and playing their own clips (`src/game/critters.ts`):
+
+- `public/cc0/quaternius-easy-enemies/rat.glb`: the Rat King's litter. Still plague hounds in stats and behavior; only the look changes.
+- `public/cc0/quaternius-animated-monsters/bat.glb`: the Bat Swarm's bats.
+
+The other packs in `art-source/` are not wired yet. With `?classic=1` both creatures fall back to the old primitives.
+
 ## Free weapon packs
 
 - **KayKit Fantasy Weapons Bits 1.0 (FREE / CC0)** — full pack at `public/cc0/kaykit/weapons/` (`License.txt`, `Assets/gltf|fbx|fbx(unity)|obj`, `Textures/`). 31 glTF stems (arrows, axes, bows, daggers, fistweapons, halberd, hammers, shields, spear, staffs, swords, wand). At runtime each weapon class holds a different pack model per tier (Teethling → Immortal); see `TIER_MODELS` in `src/game/kaykit.ts`. The Teethling mace is `bone_A` from Halloween Bits.

@@ -546,6 +546,8 @@ export class Game {
   private batTick = 0
   private batR = 0.4
   private bats: THREE.Group[] = []
+  /** The Bat Swarm's flap clips, when the bats are the Animated Monster model. */
+  private batMixers: THREE.AnimationMixer[] = []
   private novaT = 0
   private novaHit = false
   private beamT = 0
@@ -868,7 +870,11 @@ export class Game {
     }
     this.makeBeacons()
 
-    for (let i = 0; i < 8; i++) this.bats.push(makeBat())
+    for (let i = 0; i < 8; i++) {
+      const flyer = this.kenney?.bat()
+      if (flyer) this.batMixers.push(flyer.mixer)
+      this.bats.push(flyer ? flyer.object : makeBat())
+    }
     for (const b of this.bats) {
       b.visible = false
       this.scene.add(b)
@@ -2288,7 +2294,7 @@ export class Game {
       if (this.district === 'slums') {
         for (const mark of LITTER) {
           const spot = this.litterSpot(mark.x, mark.z)
-          if (spot) this.spawnEnemy('hound', spot.x, spot.z, { returns: false })
+          if (spot) this.spawnEnemy('hound', spot.x, spot.z, { returns: false, look: 'rat' })
         }
         this.hud.toast(`The king calls his litter, and ${BOSS_SIG_LABEL[BOSS_SIG.slums]}`)
       } else {
@@ -2410,6 +2416,12 @@ export class Game {
       const a = k * 7 + (i / this.bats.length) * Math.PI * 2
       b.visible = true
       b.position.set(this.hero.x + Math.sin(a) * this.batR, 0.85 + Math.sin(k * 12 + i) * 0.25, this.hero.z + Math.cos(a) * this.batR)
+      if (this.batMixers.length) {
+        // Facing along the circle, flapping on the model's own clip.
+        b.rotation.y = a + Math.PI / 2
+        this.batMixers[i]?.update(dt)
+        return
+      }
       b.rotation.y = -a
       const wing = b.children[1]
       const wing2 = b.children[2]
@@ -4463,10 +4475,12 @@ export class Game {
     kind: Exclude<EnemyKind, 'boss' | 'don'>,
     x: number,
     z: number,
-    opts?: { pod?: number; returns?: boolean },
+    opts?: { pod?: number; returns?: boolean; look?: 'rat' },
   ): Actor {
-    const rig = this.kenney ? this.kenney[kind]() : FALLBACK[kind]()
-    const tint = this.night ? MAPS[this.night.district].tints[kind] : undefined
+    // A look swaps the model only; the kind keeps its stats and fight. The Rat King's litter are rats.
+    const rat = opts?.look === 'rat' && this.kenney
+    const rig = rat ? this.kenney!.rat() : this.kenney ? this.kenney[kind]() : FALLBACK[kind]()
+    const tint = this.night && !rat ? MAPS[this.night.district].tints[kind] : undefined
     if (tint != null) tintRig(rig, tint)
     const def = ENEMIES[kind]
     const stats = enemyStats(kind, this.steps(), this.bite(), this.tough())
@@ -5428,6 +5442,7 @@ export class Game {
             elite: e.elite,
           })),
         feeds: this.feeds,
+        bats: { t: +this.batT.toFixed(2), shown: this.bats.filter((b) => b.visible).length, model: this.batMixers.length > 0 },
         hurt: Math.round(this.hurtTotal),
         teles: this.enemies.reduce((n, e) => n + (e.act?.shapes.length ?? 0), 0) + this.blasts.reduce((n, b) => n + b.shapes.length, 0),
         pools: this.pools.length,
@@ -5491,8 +5506,8 @@ export class Game {
         this.persist()
       },
       /** Drops one enemy of a kind on a spot, for close looks at a model. */
-      spawn: (kind: Foe, x: number, z: number) => {
-        const e = this.spawnEnemy(kind, x, z)
+      spawn: (kind: Foe, x: number, z: number, look?: 'rat') => {
+        const e = this.spawnEnemy(kind, x, z, { look })
         e.intro = 999
         return e.id
       },
