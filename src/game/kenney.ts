@@ -1,5 +1,7 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { bakeDecor, type DecorLib } from './decor'
+import { DECOR_NAMES } from './mapart'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import type { ClawSpec, KenneyAnimState, KenneyDriver, Rig } from './models'
 import { loadKaykit } from './kaykit'
@@ -35,6 +37,8 @@ import {
  */
 
 export interface KenneyLib {
+  /** The props the map decorations use, baked to flat colors (decor.ts). */
+  decor: DecorLib
   dress(scene: THREE.Scene, blocks: AlleyBlock[]): void
   /** Fade buildings and barriers that sit between the camera and the hero. */
   fadeBlockers(camera: THREE.Camera, x: number, z: number, dt: number, active: boolean): void
@@ -1768,6 +1772,7 @@ export async function loadKenney(): Promise<KenneyLib> {
   installBrickWalls(props)
   let driftCity: (dt: number) => void = () => {}
   return {
+    decor: bakeDecor(props, DECOR_NAMES),
     dress: (scene, blocks) => {
       dressAlley(scene, blocks, props)
       if (MOB_ARENA) dressMob(scene, props)

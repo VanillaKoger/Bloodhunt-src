@@ -278,7 +278,17 @@ export class Hud {
             <button id="btn-abandon" type="button" hidden>Abandon the night</button>
             <p class="install-tip" id="gear-note">${INSTALL_TIP}</p>
             <button id="btn-reset" type="button">Reset all progress (testing)</button>
-            <p class="art-credits">Art: KayKit (Kay Lousberg), Kenney, Quaternius, Fertile Soil Productions, and <a href="https://atomicrealm.itch.io/" target="_blank" rel="noopener">Atomic Realm</a>. Ground maps from ambientCG and Poly Haven. Full list in CREDITS.md.</p>
+            <details class="art-credits">
+              <summary>Credits</summary>
+              <ul>
+                <li>Kenney (<a href="https://www.kenney.nl" target="_blank" rel="noopener">www.kenney.nl</a>): Graveyard Kit, Blocky Characters, Retro Urban Kit, City Kit (Roads), City Kit Commercial, Platformer Kit, Car Kit, Food Kit, Holiday Kit, Cube Pets, Fantasy Town Kit. CC0.</li>
+                <li>KayKit by Kay Lousberg (<a href="https://www.kaylousberg.com" target="_blank" rel="noopener">www.kaylousberg.com</a>), free tiers: Adventurers, Character Animations, Fantasy Weapons Bits, Skeletons, Halloween Bits, RPG Tools Bits, City Builder Bits. CC0.</li>
+                <li>Quaternius, Standard tiers: Fantasy Props MegaKit, Downtown City MegaKit, Medieval Village MegaKit; Cyberpunk Game Kit signs. CC0.</li>
+                <li>Post-Apocalyptic World (FREE Starter) by Atomic Realm — <a href="https://atomicrealm.itch.io/" target="_blank" rel="noopener">https://atomicrealm.itch.io/</a> (attribution required; not CC0).</li>
+                <li>Ground: ambientCG Road012B; Poly Haven cobblestone_floor_08, damaged_concrete_floor, brown_mud_leaves_01. CC0.</li>
+              </ul>
+              <p>No author listed here endorses this game. Full list: CREDITS.md.</p>
+            </details>
           </div>
         </div>
         <div id="offline" hidden>

@@ -1,6 +1,10 @@
 # Credits
 
-The KayKit, Quaternius, Kenney, and Fertile Soil Productions packs below are **CC0 1.0**. The Atomic Realm packs are free to use in a commercial game with credit and are not CC0: they cannot be repackaged or resold. Nothing in this game is from a paid Extra, Plus, Source, or Pro tier. Free downloads only.
+Every pack the shipped game loads is listed here, and nothing else. The KayKit, Quaternius, and Kenney packs below are **CC0 1.0**. The Atomic Realm starter is free to use in a commercial game with credit and is not CC0: it cannot be repackaged, resold, or redistributed as a pack. Nothing in this game is from a paid Extra, Plus, Source, or Pro tier. Free files only. No author listed here endorses this game.
+
+The map decorations in the placeholder zones (`src/game/mapart.ts`, `MODEL`) reuse props from the packs below that the city already loads; `src/game/decor.ts` bakes them to flat colors at load. They add no pack of their own.
+
+A short version of this list is at the bottom of the in-game gear menu.
 
 ## KayKit — Kay Lousberg
 
@@ -50,33 +54,11 @@ Author: Quaternius — https://quaternius.com
 
 Author: Atomic Realm — https://atomicrealm.itch.io
 
-- Post-Apocalyptic World, **FREE Starter** only. PLUS and SOURCE were not downloaded.
+- Post-Apocalyptic World (FREE Starter) by Atomic Realm — https://atomicrealm.itch.io/ (attribution required; not CC0)
   https://atomicrealm.itch.io/post-apocalyptic-assets
-  Boarded and broken walls, a barrel, planks, a tire, and a crate, kitbashed onto the brick tenements.
+  PLUS and SOURCE were not downloaded. Boarded and broken walls, a barrel, planks, a tire, and a crate, kitbashed onto the brick tenements; the barrel, planks, tire, and crate also dress the Mob District back lots and the Black Docks.
   License: commercial use and edits are allowed. Repackaging, resale, and redistribution of the assets are not, however modified. Credit Atomic Realm with the link above. This game does not claim Atomic Realm's endorsement.
   `public/cc0/apocalypse/LICENSE.txt`
-
-## Fertile Soil Productions
-
-Author: Keith at Fertile Soil Productions — https://fertile-soil-productions.itch.io
-
-Map decorations, baked by `scripts/build_decor.py` into `public/decor/decor.glb` (flat colors, one mesh per prop; the game sizes and tints them per map). License: CC0 (public domain). Credit is not required and is given anyway.
-
-- Modular Village Pack (free) — barrels, crates, carts, hay, a well, boats
-  https://fertile-soil-productions.itch.io/modular-village-pack
-- Modular Terrain Pack (free) — oak, pine, and cedar trees, bushes, rocks and boulders, stumps, a lean-to, a wood pile, fences, ruined pillars, stalagmites, a chest, and grass, mushrooms, branches, cattails, and roses for ground scatter
-  https://fertile-soil-productions.itch.io/modular-terrain-pack
-
-## Atomic Realm — Modular Roads
-
-Author: Atomic Realm — https://atomicrealm.itch.io
-
-- Modular Roads, **FREE Base** download only (its models sit in a folder named `PLUS` inside that free zip; nothing was bought). Two street lamps, two road barriers, a traffic cone, and a traffic barrel, in the Mob District's back lots and club. Their palette texture is sampled into flat colors in `public/decor/decor.glb`.
-  https://atomicrealm.itch.io/modular-roads
-  License: free to use in a game with credit to Atomic Realm and a link to https://atomicrealm.itch.io/. The game ships these few models inside the running game; it is not a redistributed copy of the pack, and it does not suggest Atomic Realm endorses it.
-  `public/decor/CREDITS.txt`
-
-Not used: the Broken Vector Low Poly Tree and Rock packs (their license could not be confirmed, and their bundled readme is store purchase text), and the KayKit Forest Nature Pack (CC0, but its files were not received).
 
 ## Ground
 
@@ -97,6 +79,27 @@ The street surface uses these CC0 maps only. Color maps are 1K. Normal maps are 
 
 ## Kenney
 
-Author: Kenney — https://kenney.nl
+Author: Kenney — https://www.kenney.nl. All CC0; each folder under `public/kenney/` keeps its `License.txt`. Only the files listed in `public/kenney/PACKS.txt` are shipped.
 
-City Kit Commercial and the other Kenney kits listed in `public/kenney/PACKS.txt` are CC0. The wolf and the hedge witch still use the graveyard rigs. The mob district meshes stay in the project but the gate is closed.
+- Graveyard Kit by Kenney ([www.kenney.nl](https://www.kenney.nl)) — CC0 — https://kenney.nl/assets/graveyard-kit
+  The zombie (plague walker, and the bosses built on it), the vampire (feral thrall), and the ghost (miasma); fences, iron fence, candle lantern, debris, and rocks in the Slums, the graves, and the catacombs.
+- Blocky Characters by Kenney ([www.kenney.nl](https://www.kenney.nl)) — CC0 — https://kenney.nl/assets/blocky-characters
+  The mob thug, the enforcer, and the Don.
+- Retro Urban Kit by Kenney ([www.kenney.nl](https://www.kenney.nl)) — CC0 — https://kenney.nl/assets/retro-urban-kit
+  Facades, doors, windows, awnings, dumpsters, fire escapes, street lights, pallets, fences, scaffolding, and asphalt tiles.
+- City Kit (Roads) by Kenney ([www.kenney.nl](https://www.kenney.nl)) — CC0 — https://kenney.nl/assets/city-kit-roads
+  The curved street light and the construction fence.
+- City Kit Commercial by Kenney ([www.kenney.nl](https://www.kenney.nl)) — CC0 — https://kenney.nl/assets/city-kit-commercial
+  Low-detail buildings for the outer city, awnings, and an overhang.
+- Platformer Kit by Kenney ([www.kenney.nl](https://www.kenney.nl)) — CC0 — https://kenney.nl/assets/platformer-kit
+  Crate, barrel, and ladder.
+- Car Kit by Kenney ([www.kenney.nl](https://www.kenney.nl)) — CC0 — https://kenney.nl/assets/car-kit
+  A sedan and a taxi.
+- Food Kit by Kenney ([www.kenney.nl](https://www.kenney.nl)) — CC0 — https://kenney.nl/assets/food-kit
+  Street litter: a bag, soda cans, a burger.
+- Holiday Kit by Kenney ([www.kenney.nl](https://www.kenney.nl)) — CC0 — https://kenney.nl/assets/holiday-kit
+  A string of colored lights.
+- Cube Pets by Kenney ([www.kenney.nl](https://www.kenney.nl)) — CC0 — https://kenney.nl/assets/cube-pets
+  The fox (plague hound, and the Alpha).
+- Fantasy Town Kit by Kenney ([www.kenney.nl](https://www.kenney.nl)) — CC0 — https://kenney.nl/assets/fantasy-town-kit
+  A lantern post and a cart.

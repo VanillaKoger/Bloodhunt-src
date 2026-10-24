@@ -5,15 +5,13 @@ Private coding source for Claude Cloud / external agents.
 - **Source of truth (Cursor Origin):** `devon-bosom/tmp-f762bdcefbb45f37`
 - **Playtest / GitHub Pages (built site only):** https://github.com/VanillaKoger/Bloodhunt — leave untouched
 
-This mirror holds the TypeScript under `src/`, configs, scripts, and the free `public/` asset packs the game loads at runtime (KayKit / Kenney / Quaternius / Fertile Soil Productions CC0, plus a few Atomic Realm free props from the Post-Apocalyptic Starter and Modular Roads Base). See `CREDITS.md` and `public/kenney/PACKS.txt`.
+This mirror holds the TypeScript under `src/`, configs, scripts, and the free `public/` asset packs the game loads at runtime (KayKit / Kenney / Quaternius CC0, plus Atomic Realm FREE Starter apocalypse props). `CREDITS.md` is the authoritative list of every pack the build uses; the gear menu's Credits section mirrors it. See also `public/kenney/PACKS.txt`.
 
 ## Map decorations
 
-The placeholder zones of every map but the Slums are dressed with free models that fit each map: barrels, crates, carts, hay, and a well in the Night Market; boats, barrels, a smuggler's chest, and sea rocks on the Black Docks; street lamps, road barriers, cones, and traffic barrels in the Mob District's back lots; oaks, pines, cedars, bushes, rocks, stumps, and a lean-to in the Blackwood; dead grey trees, stumps, broken fences, and ruins in Hollow Graves; bushes and roses in Ashen Manor's gardens; broken pillars in the Cathedral; stalagmites and boulders in the Catacombs; and crimson stone in the Spire. Grass, mushrooms, branches, cattails, and roses scatter the ground where it fits, and never block. Each map tints the models toward its own night.
+The placeholder zones of every map but the Slums are dressed with props the city already loads, chosen to fit each map: crates, barrels, plank piles, tires, and bollards on the Black Docks; a cart and lantern posts in the Night Market; dumpsters, trash, hydrants, curved street lights, and construction fences in the Mob District's back lots; gravestones, iron fences, candle lanterns, and debris in Hollow Graves; benches and planters in Ashen Manor; candles and torches in the Cathedral; rock piles, torches, and stray bones in the Catacombs; and red-tinted rocks and torches in the Spire. The rest of each zone keeps its primitive props.
 
-`scripts/build_decor.py` bakes the chosen props into `public/decor/decor.glb` (flat colors, one mesh per prop, about 1.7 MB). The list of props per map is `MODEL` and `THEME_PROPS` in `src/game/mapart.ts`. If the file fails to load, every model prop falls back to its old primitive. Credits are in `CREDITS.md` and `public/decor/CREDITS.txt`, and a short credit line sits at the bottom of the gear menu.
-
-Asset trees were restored from the Pages build's `cc0/` and `kenney/` (same free packs the game uses). Origin `git clone` auth was unavailable on this box; some non-runtime art sketches under `games/vampire-incremental/art/` may still be absent.
+`src/game/decor.ts` bakes those props to flat colors once at load, so copies merge into the zone's colored meshes; the list per map is `MODEL` and `THEME_PROPS` in `src/game/mapart.ts`. They add no new pack: every model comes from a pack already listed in `CREDITS.md`. With `?classic=1` (no city packs) every model prop falls back to its primitive.
 
 ## Free weapon packs
 

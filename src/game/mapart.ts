@@ -11,8 +11,8 @@ import { ZONE1 } from './world'
  * judged before the real art goes in: a patterned floor, walls (tall on the
  * far side, low on the camera side so nothing hides the hero), sealed gates
  * toward the neighboring zones, and props that say what the place is.
- * Where a free model pack has the right piece (decor.ts, CREDITS.md), the
- * prop is that model instead, sized and tinted for the map.
+ * Where a pack the city already loads has the right piece (decor.ts,
+ * CREDITS.md), the prop is that model instead, sized and tinted for the map.
  */
 
 export interface MapArtHandle {
@@ -495,42 +495,43 @@ interface ModelProp {
 }
 
 const MODEL: Record<string, ModelProp> = {
-  'm-barrel': { ids: ['barrel', 'barrel-open', 'barrel-tall'], h: [0.9, 1.05], block: 0.5, else: 'barrel' },
-  'm-crate': { ids: ['crate', 'crate-open'], h: [0.75, 0.9], block: 0.6, else: 'crate' },
-  'm-cart': { ids: ['cart-barrels', 'cart-hay', 'cart'], h: [1.2, 1.3], block: 0.45, else: 'cart' },
-  'm-cart-barrels': { ids: ['cart-barrels', 'cart'], h: [1.2, 1.3], block: 0.45, else: 'cart' },
-  'm-hay': { ids: ['hay'], h: [0.6, 0.75], block: 0.55 },
-  'm-well': { ids: ['well'], h: [1.8, 1.9], block: 0.5, square: true },
-  'm-boat': { ids: ['boat', 'boat-small'], h: [0.65, 0.75], block: 0.45 },
-  'm-chest': { ids: ['chest'], h: [0.65, 0.7], block: 0.5 },
-  'm-oak': { ids: ['oak-2', 'oak-3', 'oak-4', 'oak-1'], h: [3.8, 4.8], block: 0.12, else: 'tree' },
-  'm-pine': { ids: ['pine-1', 'pine-2', 'pine-3'], h: [3.8, 4.6], block: 0.14, else: 'tree' },
-  'm-cedar': { ids: ['cedar-1', 'cedar-2'], h: [3.0, 3.5], block: 0.2, else: 'tree' },
-  'm-bush': { ids: ['bush-1', 'bush-2', 'bush-3', 'bush-4'], h: [0.75, 1.0], block: 0.45, else: 'bush' },
-  'm-rock': { ids: ['rock-2', 'rock-3', 'rock-4', 'boulder-1', 'boulder-2'], h: [0.55, 1.1], block: 0.45, else: 'rock' },
-  'm-boulder': { ids: ['boulder-1', 'boulder-2', 'boulder-4', 'rock-4'], h: [0.8, 1.3], block: 0.45, else: 'rock' },
-  'm-cliff-rock': { ids: ['cliff-rock-1', 'cliff-rock-2', 'boulder-3'], h: [1.6, 2.4], block: 0.42, else: 'rock' },
-  'm-stump': { ids: ['stump', 'hollow-trunk', 'sitting-log'], h: [0.55, 0.75], block: 0.45, else: 'log' },
-  'm-woodpile': { ids: ['wood-pile'], h: [0.55, 0.65], block: 0.5 },
-  'm-lean-to': { ids: ['lean-to'], h: [1.8, 2.0], block: 0.45 },
-  'm-fence': { ids: ['fence-post', 'fence-boards'], h: [0.8, 0.95], block: 0.3 },
-  'm-ruin': { ids: ['ruin-1', 'ruin-2', 'ruin-3'], h: [2.2, 3.2], block: 0.42, else: 'pillar' },
-  'm-ruin-fallen': { ids: ['ruin-4', 'ruin-5'], h: [0.8, 1.0], block: 0.4 },
-  'm-stalagmite': { ids: ['stalagmite'], h: [1.6, 2.4], block: 0.35, else: 'crystal' },
-  'm-stalagmite-small': { ids: ['stalagmite-tiny'], h: [0.5, 0.7], block: 0.35 },
-  'm-road-lamp': { ids: ['road-lamp', 'road-lamp-2'], h: [3.6, 4.0], block: 0.08, else: 'lamp', square: true },
-  'm-barrier': { ids: ['road-barrier', 'road-barrier-2'], h: [0.9, 1.0], block: 0.45, square: true },
-  'm-cone': { ids: ['cone'], h: [0.55, 0.65], block: 0.4 },
-  'm-traffic-barrel': { ids: ['traffic-barrel'], h: [0.95, 1.05], block: 0.42 },
+  // Kenney Platformer Kit, KayKit City Builder Bits, Atomic Realm Post-Apocalyptic Starter
+  'm-barrel': { ids: ['barrel', 'apo-barrel'], h: [0.9, 1.05], block: 0.5, else: 'barrel' },
+  'm-crate': { ids: ['crate', 'apo-box', 'box_A'], h: [0.7, 0.9], block: 0.6, else: 'crate' },
+  'm-planks': { ids: ['apo-planks'], h: [0.25, 0.35], block: 0.4 },
+  'm-tire': { ids: ['apo-tire'], h: [0.3, 0.4], block: 0.45 },
+  // Kenney Fantasy Town Kit
+  'm-cart': { ids: ['cart'], h: [1.2, 1.4], block: 0.45, else: 'cart' },
+  // KayKit City Builder Bits, Kenney Retro Urban Kit
+  'm-dumpster': { ids: ['dumpster', 'detail-dumpster-closed'], h: [1.2, 1.35], block: 0.5, else: 'dumpster', square: true },
+  'm-trash': { ids: ['trash_A'], h: [0.65, 0.8], block: 0.45 },
+  'm-hydrant': { ids: ['firehydrant'], h: [0.75, 0.85], block: 0.35 },
+  'm-bench': { ids: ['bench'], h: [0.8, 0.9], block: 0.45, else: 'bench', square: true },
+  // Quaternius Downtown City MegaKit
+  'm-bollard': { ids: ['Prop_Bollard'], h: [0.75, 0.85], block: 0.35, else: 'bollard' },
+  'm-planter': { ids: ['Prop_Planter_Single'], h: [0.8, 1.0], block: 0.45, else: 'bush' },
+  // Kenney City Kit (Roads), Kenney Retro Urban Kit
+  'm-street-light': { ids: ['light-curved', 'detail-light-single'], h: [3.4, 3.8], block: 0.08, else: 'lamp', square: true },
+  'm-roadblock': { ids: ['construction-fence'], h: [0.95, 1.05], block: 0.4, square: true },
+  // Kenney Graveyard Kit
+  'm-fence': { ids: ['fence', 'fence-damaged', 'iron-fence'], h: [0.9, 1.1], block: 0.3, square: true },
+  'm-grave-lantern': { ids: ['lantern-candle'], h: [0.8, 0.95], block: 0.3 },
+  'm-debris': { ids: ['debris', 'debris-wood'], h: [0.35, 0.55], block: 0.4 },
+  'm-rocks': { ids: ['rocks'], h: [0.5, 0.85], block: 0.45, else: 'rock' },
+  // Kenney Fantasy Town Kit, KayKit Halloween Bits
+  'm-lantern-post': { ids: ['lantern', 'lantern_standing'], h: [2.2, 2.6], block: 0.15, else: 'lamp' },
+  // KayKit Halloween Bits, Quaternius Fantasy Props MegaKit
+  'm-gravestone': { ids: ['gravestone'], h: [0.9, 1.1], block: 0.35, else: 'tomb' },
+  'm-candles': { ids: ['candle', 'Candle_1', 'skull_candle'], h: [0.45, 0.65], block: 0.25, else: 'candles' },
+  'm-torch': { ids: ['Torch_Metal'], h: [1.6, 1.9], block: 0.15, else: 'torch' },
   // Ground scatter: never blocks.
-  'm-grass': { ids: ['grass-1', 'grass-2', 'grass-3'], h: [0.3, 0.55], block: 0 },
-  'm-shroom': { ids: ['mushroom-1', 'mushroom-2'], h: [0.3, 0.45], block: 0 },
-  'm-branch': { ids: ['branch-1', 'branch-2'], h: [0.15, 0.3], block: 0 },
-  'm-cattail': { ids: ['cattail'], h: [0.8, 1.0], block: 0 },
-  'm-rose': { ids: ['rose'], h: [0.5, 0.6], block: 0 },
+  'm-bone': { ids: ['bone_A'], h: [0.12, 0.18], block: 0 },
 }
 
-/** How a map shifts the packs' daylight colors toward its own night. */
+/** Every prop the decorations use, for kenney.ts to bake once at load. */
+export const DECOR_NAMES = [...new Set(Object.values(MODEL).flatMap((m) => m.ids))]
+
+/** How a map shifts the props' colors toward its own night. */
 interface Tint {
   /** Color multiplier, then a pull toward `toward` by `mix`. */
   mul: number
@@ -539,16 +540,12 @@ interface Tint {
 }
 
 const TINT: Partial<Record<MapId, Tint>> = {
-  mob: { mul: 0.85, toward: 0x2a2440, mix: 0.2 },
-  docks: { mul: 0.8, toward: 0x203040, mix: 0.25 },
-  market: { mul: 0.95, toward: 0x3a1e14, mix: 0.1 },
-  wilds: { mul: 0.72, toward: 0x10241a, mix: 0.25 },
-  // Graves: the green goes out of it; the trees are dead and grey.
-  graves: { mul: 0.62, toward: 0x3a3a40, mix: 0.55 },
-  manor: { mul: 0.7, toward: 0x1a2418, mix: 0.3 },
-  cathedral: { mul: 1, toward: 0xd8d0c0, mix: 0.35 },
-  catacombs: { mul: 0.85, toward: 0x8a8070, mix: 0.45 },
-  spire: { mul: 0.8, toward: 0x6a1020, mix: 0.5 },
+  docks: { mul: 0.9, toward: 0x203040, mix: 0.2 },
+  wilds: { mul: 0.85, toward: 0x10241a, mix: 0.2 },
+  graves: { mul: 0.85, toward: 0x3a3a40, mix: 0.25 },
+  cathedral: { mul: 1, toward: 0xd8d0c0, mix: 0.2 },
+  catacombs: { mul: 0.9, toward: 0x8a8070, mix: 0.25 },
+  spire: { mul: 0.85, toward: 0x6a1020, mix: 0.4 },
 }
 
 const tintColor = new THREE.Color()
@@ -583,15 +580,15 @@ function modelProp(b: Bucket, spec: ModelProp, s: Spot, map: MapId): number {
  * side, ground scatter]. Names starting `m-` are models (MODEL above).
  */
 const THEME_PROPS: Record<string, [string[], string[], string[]]> = {
-  mob: [['m-crate', 'dumpster', 'pallet', 'm-barrel', 'm-cone', 'm-barrier', 'sofa', 'table', 'm-traffic-barrel'], ['m-road-lamp'], []],
-  docks: [['m-crate', 'm-barrel', 'bollard', 'pallet', 'm-boat', 'm-cart-barrels', 'm-crate', 'm-chest'], ['lamp', 'm-cliff-rock'], []],
-  market: [['stall', 'm-cart', 'm-barrel', 'm-crate', 'stall', 'm-hay', 'm-well'], ['lamp'], []],
-  wilds: [['m-rock', 'm-stump', 'm-bush', 'm-bush', 'm-woodpile', 'm-rock'], ['m-oak', 'm-pine', 'm-cedar', 'm-oak', 'm-lean-to'], ['m-grass', 'm-grass', 'm-shroom', 'm-branch', 'm-cattail']],
-  graves: [['tomb', 'cross', 'tomb', 'coffin', 'tomb', 'm-stump', 'm-fence'], ['m-pine', 'crypt', 'lamp', 'm-cedar', 'm-ruin'], ['m-grass', 'm-branch', 'm-shroom']],
-  manor: [['hedge', 'bench', 'statue', 'hedge', 'm-bush'], ['statue', 'lamp', 'fountain', 'm-oak'], ['m-rose', 'm-grass']],
-  cathedral: [['pew', 'candles', 'pew', 'statue', 'm-ruin-fallen'], ['pillar', 'pillar', 'altar', 'm-ruin'], []],
-  catacombs: [['bones', 'sarcophagus', 'bones', 'torch', 'm-stalagmite-small', 'm-boulder'], ['pillar', 'sarcophagus', 'm-stalagmite'], []],
-  spire: [['pool', 'brazier', 'crystal', 'statue', 'm-boulder'], ['crystal', 'pillar', 'm-ruin', 'm-stalagmite'], []],
+  mob: [['m-crate', 'm-dumpster', 'pallet', 'm-barrel', 'm-roadblock', 'sofa', 'table', 'm-trash', 'm-hydrant', 'm-tire'], ['m-street-light'], []],
+  docks: [['m-crate', 'm-barrel', 'm-bollard', 'pallet', 'm-planks', 'm-tire', 'm-crate'], ['m-lantern-post', 'lamp'], []],
+  market: [['stall', 'm-cart', 'm-barrel', 'm-crate', 'stall', 'm-crate'], ['m-lantern-post'], []],
+  wilds: [['rock', 'log', 'bush', 'shroom', 'bush', 'm-rocks', 'm-debris'], ['tree', 'tree', 'deadTree'], []],
+  graves: [['tomb', 'cross', 'm-gravestone', 'coffin', 'm-fence', 'm-grave-lantern', 'm-debris'], ['deadTree', 'crypt', 'm-lantern-post'], ['m-bone']],
+  manor: [['hedge', 'm-bench', 'statue', 'hedge', 'm-planter'], ['statue', 'm-lantern-post', 'fountain'], []],
+  cathedral: [['pew', 'm-candles', 'pew', 'statue'], ['pillar', 'pillar', 'altar', 'm-torch'], []],
+  catacombs: [['bones', 'sarcophagus', 'bones', 'm-torch', 'm-candles', 'm-rocks'], ['pillar', 'sarcophagus'], ['m-bone']],
+  spire: [['pool', 'brazier', 'crystal', 'statue', 'm-rocks'], ['crystal', 'pillar', 'm-torch'], []],
 }
 
 /** Draws a named prop, model or primitive. Returns its blocking radius. */
@@ -655,9 +652,9 @@ function zoneArt(group: THREE.Group, map: MapDef, zone: ZoneDef, index: number, 
     placed.push({ x, z })
     if (r0 > 0) obstacles.push({ x, z, r: r0 })
   }
-  // Ground scatter (grass, mushrooms, fallen branches): small, never in the way, kept off the paths all the same.
+  // Ground scatter (stray bones): small, never in the way, kept off the paths all the same.
   if (scatter.length && decor) {
-    const many = Math.round(area / 9)
+    const many = Math.round(area / 22)
     for (let tries = 0, n = 0; tries < many * 6 && n < many; tries++) {
       const r = zone.rooms[Math.floor(rand() * zone.rooms.length)]
       const x = r.x0 + 0.8 + rand() * (r.x1 - r.x0 - 1.6)
