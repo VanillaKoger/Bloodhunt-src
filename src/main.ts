@@ -3,6 +3,7 @@ import '@fontsource/cinzel/700.css'
 import './style.css'
 import { Game } from './game/Game'
 import { loadStreetMaps } from './game/world'
+import type { DecorLib } from './game/decor'
 
 const rootEl = document.getElementById('app')
 if (!rootEl) throw new Error('Missing #app')
@@ -28,6 +29,11 @@ async function boot(): Promise<void> {
     console.error(err)
     return
   }
+  // Map decorations load alongside the city. Without them the maps fall back to their primitive props.
+  const decorLoad: Promise<DecorLib | null> = import('./game/decor').then((mod) => mod.loadDecor()).catch((err) => {
+    console.error(err)
+    return null
+  })
   let kenney = null
   if (!params.has('classic')) {
     root.innerHTML = '<div id="boot-error">The city is waking…</div>'
@@ -42,7 +48,7 @@ async function boot(): Promise<void> {
     }
     root.innerHTML = ''
   }
-  const game = new Game(root, kenney)
+  const game = new Game(root, kenney, await decorLoad)
   game.start()
 }
 

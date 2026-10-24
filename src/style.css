@@ -761,6 +761,8 @@ footer {
   font-size: 12px;
   letter-spacing: 0.04em;
 }
+.art-credits { margin: 10px 2px 0; font-size: 10px; line-height: 1.45; color: #8f7f68; }
+.art-credits a { color: #c9b89a; }
 #btn-reset.armed { border-style: solid; border-color: #ff4458; color: #fff; background: #8a1020; }
 
 .upgrade-card {

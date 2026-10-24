@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
-import { MAPS, MAP_IDS, type MapDef, type Palette, type Rect, type ZoneDef } from './maps'
+import type { DecorLib } from './decor'
+import { MAPS, MAP_IDS, type MapDef, type MapId, type Palette, type Rect, type ZoneDef } from './maps'
 import { addRim } from './polish'
 import { ZONE1 } from './world'
 
@@ -10,6 +11,8 @@ import { ZONE1 } from './world'
  * judged before the real art goes in: a patterned floor, walls (tall on the
  * far side, low on the camera side so nothing hides the hero), sealed gates
  * toward the neighboring zones, and props that say what the place is.
+ * Where a free model pack has the right piece (decor.ts, CREDITS.md), the
+ * prop is that model instead, sized and tinted for the map.
  */
 
 export interface MapArtHandle {
@@ -471,17 +474,133 @@ const PROP: Record<string, PropFn> = {
   },
 }
 
-/** What each theme is furnished with: [small props, tall props for the far side]. */
-const THEME_PROPS: Record<string, [string[], string[]]> = {
-  mob: [['crate', 'dumpster', 'pallet', 'barrel', 'sofa', 'table'], ['lamp']],
-  docks: [['crate', 'barrel', 'bollard', 'pallet', 'crate'], ['lamp']],
-  market: [['stall', 'cart', 'barrel', 'crate', 'stall'], ['lamp']],
-  wilds: [['rock', 'log', 'bush', 'shroom', 'bush'], ['tree', 'tree', 'deadTree']],
-  graves: [['tomb', 'cross', 'tomb', 'coffin', 'tomb'], ['deadTree', 'crypt', 'lamp']],
-  manor: [['hedge', 'bench', 'statue', 'hedge'], ['statue', 'lamp', 'fountain']],
-  cathedral: [['pew', 'candles', 'pew', 'statue'], ['pillar', 'pillar', 'altar']],
-  catacombs: [['bones', 'sarcophagus', 'bones', 'torch'], ['pillar', 'sarcophagus']],
-  spire: [['pool', 'brazier', 'crystal', 'statue'], ['crystal', 'pillar']],
+// ------------------------------------------------------------------ models
+
+/** The loaded decoration models, or null (load failed): every model prop then falls back to its primitive. */
+let decor: DecorLib | null = null
+
+/**
+ * A prop drawn from the decoration models: one of `ids` at a height in
+ * `h`, turned at random. `block` is the footprint share that blocks walking
+ * (a tree blocks at its trunk, not its crown). `else` is the primitive drawn
+ * if the models did not load.
+ */
+interface ModelProp {
+  ids: string[]
+  h: [number, number]
+  block: number
+  else?: string
+  /** Square to the walls instead of turned at random. */
+  square?: boolean
+}
+
+const MODEL: Record<string, ModelProp> = {
+  'm-barrel': { ids: ['barrel', 'barrel-open', 'barrel-tall'], h: [0.9, 1.05], block: 0.5, else: 'barrel' },
+  'm-crate': { ids: ['crate', 'crate-open'], h: [0.75, 0.9], block: 0.6, else: 'crate' },
+  'm-cart': { ids: ['cart-barrels', 'cart-hay', 'cart'], h: [1.2, 1.3], block: 0.45, else: 'cart' },
+  'm-cart-barrels': { ids: ['cart-barrels', 'cart'], h: [1.2, 1.3], block: 0.45, else: 'cart' },
+  'm-hay': { ids: ['hay'], h: [0.6, 0.75], block: 0.55 },
+  'm-well': { ids: ['well'], h: [1.8, 1.9], block: 0.5, square: true },
+  'm-boat': { ids: ['boat', 'boat-small'], h: [0.65, 0.75], block: 0.45 },
+  'm-chest': { ids: ['chest'], h: [0.65, 0.7], block: 0.5 },
+  'm-oak': { ids: ['oak-2', 'oak-3', 'oak-4', 'oak-1'], h: [3.8, 4.8], block: 0.12, else: 'tree' },
+  'm-pine': { ids: ['pine-1', 'pine-2', 'pine-3'], h: [3.8, 4.6], block: 0.14, else: 'tree' },
+  'm-cedar': { ids: ['cedar-1', 'cedar-2'], h: [3.0, 3.5], block: 0.2, else: 'tree' },
+  'm-bush': { ids: ['bush-1', 'bush-2', 'bush-3', 'bush-4'], h: [0.75, 1.0], block: 0.45, else: 'bush' },
+  'm-rock': { ids: ['rock-2', 'rock-3', 'rock-4', 'boulder-1', 'boulder-2'], h: [0.55, 1.1], block: 0.45, else: 'rock' },
+  'm-boulder': { ids: ['boulder-1', 'boulder-2', 'boulder-4', 'rock-4'], h: [0.8, 1.3], block: 0.45, else: 'rock' },
+  'm-cliff-rock': { ids: ['cliff-rock-1', 'cliff-rock-2', 'boulder-3'], h: [1.6, 2.4], block: 0.42, else: 'rock' },
+  'm-stump': { ids: ['stump', 'hollow-trunk', 'sitting-log'], h: [0.55, 0.75], block: 0.45, else: 'log' },
+  'm-woodpile': { ids: ['wood-pile'], h: [0.55, 0.65], block: 0.5 },
+  'm-lean-to': { ids: ['lean-to'], h: [1.8, 2.0], block: 0.45 },
+  'm-fence': { ids: ['fence-post', 'fence-boards'], h: [0.8, 0.95], block: 0.3 },
+  'm-ruin': { ids: ['ruin-1', 'ruin-2', 'ruin-3'], h: [2.2, 3.2], block: 0.42, else: 'pillar' },
+  'm-ruin-fallen': { ids: ['ruin-4', 'ruin-5'], h: [0.8, 1.0], block: 0.4 },
+  'm-stalagmite': { ids: ['stalagmite'], h: [1.6, 2.4], block: 0.35, else: 'crystal' },
+  'm-stalagmite-small': { ids: ['stalagmite-tiny'], h: [0.5, 0.7], block: 0.35 },
+  'm-road-lamp': { ids: ['road-lamp', 'road-lamp-2'], h: [3.6, 4.0], block: 0.08, else: 'lamp', square: true },
+  'm-barrier': { ids: ['road-barrier', 'road-barrier-2'], h: [0.9, 1.0], block: 0.45, square: true },
+  'm-cone': { ids: ['cone'], h: [0.55, 0.65], block: 0.4 },
+  'm-traffic-barrel': { ids: ['traffic-barrel'], h: [0.95, 1.05], block: 0.42 },
+  // Ground scatter: never blocks.
+  'm-grass': { ids: ['grass-1', 'grass-2', 'grass-3'], h: [0.3, 0.55], block: 0 },
+  'm-shroom': { ids: ['mushroom-1', 'mushroom-2'], h: [0.3, 0.45], block: 0 },
+  'm-branch': { ids: ['branch-1', 'branch-2'], h: [0.15, 0.3], block: 0 },
+  'm-cattail': { ids: ['cattail'], h: [0.8, 1.0], block: 0 },
+  'm-rose': { ids: ['rose'], h: [0.5, 0.6], block: 0 },
+}
+
+/** How a map shifts the packs' daylight colors toward its own night. */
+interface Tint {
+  /** Color multiplier, then a pull toward `toward` by `mix`. */
+  mul: number
+  toward?: number
+  mix?: number
+}
+
+const TINT: Partial<Record<MapId, Tint>> = {
+  mob: { mul: 0.85, toward: 0x2a2440, mix: 0.2 },
+  docks: { mul: 0.8, toward: 0x203040, mix: 0.25 },
+  market: { mul: 0.95, toward: 0x3a1e14, mix: 0.1 },
+  wilds: { mul: 0.72, toward: 0x10241a, mix: 0.25 },
+  // Graves: the green goes out of it; the trees are dead and grey.
+  graves: { mul: 0.62, toward: 0x3a3a40, mix: 0.55 },
+  manor: { mul: 0.7, toward: 0x1a2418, mix: 0.3 },
+  cathedral: { mul: 1, toward: 0xd8d0c0, mix: 0.35 },
+  catacombs: { mul: 0.85, toward: 0x8a8070, mix: 0.45 },
+  spire: { mul: 0.8, toward: 0x6a1020, mix: 0.5 },
+}
+
+const tintColor = new THREE.Color()
+const towardColor = new THREE.Color()
+
+function tinted(hex: number, map: MapId): number {
+  const t = TINT[map]
+  if (!t) return hex
+  tintColor.setHex(hex).multiplyScalar(t.mul)
+  if (t.toward != null && t.mix) tintColor.lerp(towardColor.setHex(t.toward), t.mix)
+  return tintColor.getHex()
+}
+
+/** Draws a model prop into the bucket. Returns its blocking radius, or -1 if the models are missing. */
+function modelProp(b: Bucket, spec: ModelProp, s: Spot, map: MapId): number {
+  const model = decor?.get(spec.ids[Math.floor(rand() * spec.ids.length)])
+  if (!model) return -1
+  const height = spec.h[0] + rand() * (spec.h[1] - spec.h[0])
+  const k = height / Math.max(0.01, model.size.y)
+  const turn = spec.square ? Math.floor(rand() * 4) * (Math.PI / 2) : rand() * Math.PI * 2
+  const m = new THREE.Matrix4().makeRotationY(turn).scale(new THREE.Vector3(k, k, k)).setPosition(s.x, 0, s.z)
+  for (const part of model.parts) {
+    const g = part.geo.clone()
+    g.applyMatrix4(m)
+    b.add(mat(tinted(part.color, map)), g)
+  }
+  return Math.max(model.size.x, model.size.z) * k * spec.block
+}
+
+/**
+ * What each theme is furnished with: [small props, tall props for the far
+ * side, ground scatter]. Names starting `m-` are models (MODEL above).
+ */
+const THEME_PROPS: Record<string, [string[], string[], string[]]> = {
+  mob: [['m-crate', 'dumpster', 'pallet', 'm-barrel', 'm-cone', 'm-barrier', 'sofa', 'table', 'm-traffic-barrel'], ['m-road-lamp'], []],
+  docks: [['m-crate', 'm-barrel', 'bollard', 'pallet', 'm-boat', 'm-cart-barrels', 'm-crate', 'm-chest'], ['lamp', 'm-cliff-rock'], []],
+  market: [['stall', 'm-cart', 'm-barrel', 'm-crate', 'stall', 'm-hay', 'm-well'], ['lamp'], []],
+  wilds: [['m-rock', 'm-stump', 'm-bush', 'm-bush', 'm-woodpile', 'm-rock'], ['m-oak', 'm-pine', 'm-cedar', 'm-oak', 'm-lean-to'], ['m-grass', 'm-grass', 'm-shroom', 'm-branch', 'm-cattail']],
+  graves: [['tomb', 'cross', 'tomb', 'coffin', 'tomb', 'm-stump', 'm-fence'], ['m-pine', 'crypt', 'lamp', 'm-cedar', 'm-ruin'], ['m-grass', 'm-branch', 'm-shroom']],
+  manor: [['hedge', 'bench', 'statue', 'hedge', 'm-bush'], ['statue', 'lamp', 'fountain', 'm-oak'], ['m-rose', 'm-grass']],
+  cathedral: [['pew', 'candles', 'pew', 'statue', 'm-ruin-fallen'], ['pillar', 'pillar', 'altar', 'm-ruin'], []],
+  catacombs: [['bones', 'sarcophagus', 'bones', 'torch', 'm-stalagmite-small', 'm-boulder'], ['pillar', 'sarcophagus', 'm-stalagmite'], []],
+  spire: [['pool', 'brazier', 'crystal', 'statue', 'm-boulder'], ['crystal', 'pillar', 'm-ruin', 'm-stalagmite'], []],
+}
+
+/** Draws a named prop, model or primitive. Returns its blocking radius. */
+function drawProp(b: Bucket, name: string, s: Spot, p: Palette, map: MapId): number {
+  const spec = MODEL[name]
+  if (!spec) return PROP[name](b, s, p)
+  const r = modelProp(b, spec, s, map)
+  if (r >= 0) return r
+  return spec.else ? PROP[spec.else](b, s, p) : 0
 }
 
 // ------------------------------------------------------------------ zones
@@ -512,7 +631,7 @@ function zoneArt(group: THREE.Group, map: MapDef, zone: ZoneDef, index: number, 
   }
   // Props, kept off the start, the way out, the boss ring, and the pods.
   const keep = [zone.start, ...zone.extracts, ...(zone.arena ? [zone.arena] : []), ...zone.pods]
-  const [small, tall] = THEME_PROPS[map.id] ?? THEME_PROPS.mob
+  const [small, tall, scatter] = THEME_PROPS[map.id] ?? THEME_PROPS.mob
   const span = {
     x0: Math.min(...zone.rooms.map((r) => r.x0)),
     x1: Math.max(...zone.rooms.map((r) => r.x1)),
@@ -532,10 +651,22 @@ function zoneArt(group: THREE.Group, map: MapDef, zone: ZoneDef, index: number, 
     // Tall props only in the far half, so the camera never looks through them at the hero.
     const far = (z - span.z0) / (span.z1 - span.z0) < 0.35 || (x - span.x0) / (span.x1 - span.x0) < 0.3
     const pool = far ? tall : small
-    const fn = PROP[pool[Math.floor(rand() * pool.length)]]
-    const r0 = fn(b, { x, z, far }, p)
+    const r0 = drawProp(b, pool[Math.floor(rand() * pool.length)], { x, z, far }, p, map.id)
     placed.push({ x, z })
     if (r0 > 0) obstacles.push({ x, z, r: r0 })
+  }
+  // Ground scatter (grass, mushrooms, fallen branches): small, never in the way, kept off the paths all the same.
+  if (scatter.length && decor) {
+    const many = Math.round(area / 9)
+    for (let tries = 0, n = 0; tries < many * 6 && n < many; tries++) {
+      const r = zone.rooms[Math.floor(rand() * zone.rooms.length)]
+      const x = r.x0 + 0.8 + rand() * (r.x1 - r.x0 - 1.6)
+      const z = r.z0 + 0.8 + rand() * (r.z1 - r.z0 - 1.6)
+      if (keep.some((k) => Math.hypot(k.x - x, k.z - z) < 2.4)) continue
+      if (placed.some((q) => Math.hypot(q.x - x, q.z - z) < 1.1)) continue
+      drawProp(b, scatter[Math.floor(rand() * scatter.length)], { x, z, far: false }, p, map.id)
+      n++
+    }
   }
   b.flush(group)
 }
@@ -547,7 +678,8 @@ function slumGates(group: THREE.Group, b: Bucket, veils: THREE.MeshBasicMaterial
   sealedGate(b, group, { x: -1.25, z: ZONE1.z1 + 0.15, axis: 'x', span: 2.7 }, p, veils)
 }
 
-export function buildMapArt(scene: THREE.Scene): MapArtHandle {
+export function buildMapArt(scene: THREE.Scene, models: DecorLib | null = null): MapArtHandle {
+  decor = models
   const group = new THREE.Group()
   group.name = 'map-art'
   const veils: THREE.MeshBasicMaterial[] = []

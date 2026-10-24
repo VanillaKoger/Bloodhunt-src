@@ -118,12 +118,14 @@ export const STAGGER = {
   /** Damage taken while stunned. */
   exposed: 1.35,
   /** A kill while stunned heals this share of max HP. */
-  feedHeal: 0.06,
+  feedHeal: 0.03,
   /** And adds this many extra Frenzy stacks. */
   feedFrenzy: 1,
   /** Poise starts coming back after this many quiet seconds, at `regen` of the meter a second. */
   quiet: 1.6,
   regen: 0.35,
+  /** Every hit's poise damage, all enemies and bosses alike. The one knob for how fast staggers come. */
+  build: 0.82,
   /** Dazed or winded enemies take this much more poise damage. */
   dazed: 2,
 }

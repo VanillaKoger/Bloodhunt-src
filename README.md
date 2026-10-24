@@ -5,7 +5,13 @@ Private coding source for Claude Cloud / external agents.
 - **Source of truth (Cursor Origin):** `devon-bosom/tmp-f762bdcefbb45f37`
 - **Playtest / GitHub Pages (built site only):** https://github.com/VanillaKoger/Bloodhunt — leave untouched
 
-This mirror holds the TypeScript under `src/`, configs, scripts, and the free `public/` asset packs the game loads at runtime (KayKit / Kenney / Quaternius CC0, plus Atomic Realm FREE Starter apocalypse props). See `CREDITS.md` and `public/kenney/PACKS.txt`.
+This mirror holds the TypeScript under `src/`, configs, scripts, and the free `public/` asset packs the game loads at runtime (KayKit / Kenney / Quaternius / Fertile Soil Productions CC0, plus a few Atomic Realm free props from the Post-Apocalyptic Starter and Modular Roads Base). See `CREDITS.md` and `public/kenney/PACKS.txt`.
+
+## Map decorations
+
+The placeholder zones of every map but the Slums are dressed with free models that fit each map: barrels, crates, carts, hay, and a well in the Night Market; boats, barrels, a smuggler's chest, and sea rocks on the Black Docks; street lamps, road barriers, cones, and traffic barrels in the Mob District's back lots; oaks, pines, cedars, bushes, rocks, stumps, and a lean-to in the Blackwood; dead grey trees, stumps, broken fences, and ruins in Hollow Graves; bushes and roses in Ashen Manor's gardens; broken pillars in the Cathedral; stalagmites and boulders in the Catacombs; and crimson stone in the Spire. Grass, mushrooms, branches, cattails, and roses scatter the ground where it fits, and never block. Each map tints the models toward its own night.
+
+`scripts/build_decor.py` bakes the chosen props into `public/decor/decor.glb` (flat colors, one mesh per prop, about 1.7 MB). The list of props per map is `MODEL` and `THEME_PROPS` in `src/game/mapart.ts`. If the file fails to load, every model prop falls back to its old primitive. Credits are in `CREDITS.md` and `public/decor/CREDITS.txt`, and a short credit line sits at the bottom of the gear menu.
 
 Asset trees were restored from the Pages build's `cc0/` and `kenney/` (same free packs the game uses). Origin `git clone` auth was unavailable on this box; some non-runtime art sketches under `games/vampire-incremental/art/` may still be absent.
 
@@ -70,7 +76,7 @@ The bottom of the gear menu has **Reset all progress (testing)**. Tap it, then t
 
 The hero still auto-attacks whatever is in reach, and Dash and the attack work as before. What changed is the other side of the fight (rules in `src/game/combat.ts`, ground markers in `src/game/telegraph.ts`):
 
-- **No knockback. Poise instead.** Hits rock an enemy in place and fill a gold strip under its health bar. A full strip staggers it: it is stunned where it stands (a gold halo), takes 35% more damage, and a kill while it is stunned is a **Feed** that heals 6% of max HP and adds a Frenzy stack. Heavier weapons (the Mace) and Crimson Nova fill the strip fastest. Poise drains back after a breather. Bosses get harder to stagger each time.
+- **No knockback. Poise instead.** Hits rock an enemy in place and fill a gold strip under its health bar. A full strip staggers it: it is stunned where it stands (a gold halo), takes 35% more damage, and a kill while it is stunned is a **Feed** that heals 3% of max HP and adds a Frenzy stack. Heavier weapons (the Mace) and Crimson Nova fill the strip fastest. Poise drains back after a breather. Bosses get harder to stagger each time.
 - **Every enemy attack is marked on the ground.** Gold is a plain swing: it tracks you for the first half of its wind-up, then commits, so stepping out of the wedge makes it miss, and staggering the enemy cancels it. Red is an ability: nothing cancels it, so step out of the area. A red mark at the screen's edge points at an ability winding up out of view.
 - **Two at a time.** Only two enemies close in and swing at once. The rest circle you and wait their turn, and still use their abilities. One red ability winds up at a time (two from tier 16), with a short gap between them that narrows down the ladder.
 - **Regen waits out the fight.** Natural regen starts 3.5 s after the last hit taken. Lifesteal, Blood Drain, and Feeds still heal mid-fight.

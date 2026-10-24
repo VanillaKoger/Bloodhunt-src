@@ -32,15 +32,15 @@ Each kind also has one ability, and every attack winds up behind a ground marker
 
 | Creature | Ability | Wind-up | Cooldown | Hit | Poise (share of HP to stagger) |
 | --- | --- | --- | --- | --- | --- |
-| Plague Hound | Flank Lunge | 0.62 s | 5.5 s | ×1.4 | 60% |
-| Plague Walker | Bile Retch (+ pool, ×0.32 a half second) | 0.85 s | 7 s | ×1.2 | 50% |
-| Feral Thrall | Pounce, then winded 1.1 s | 0.66 s | 6.5 s | ×1.45 | 45% |
-| Miasma | Acid Lob (+ pool, ×0.28 a half second) | 0.95 s | 6.5 s | ×1.5 | 50% |
-| Skeleton | Reassemble at 50% HP unless the pile is struck within 3.2 s | — | once | — | 50% |
-| Mob Thug | Haymaker Charge, then dazed 1.2 s | 0.78 s | 7.5 s | ×1.6 | 45% |
-| Enforcer | Bulwark: 75% off hits to his front | — | always | — | 55% |
+| Plague Hound | Flank Lunge | 0.62 s | 5.5 s | ×1.4 | 73% |
+| Plague Walker | Bile Retch (+ pool, ×0.32 a half second) | 0.85 s | 7 s | ×1.2 | 61% |
+| Feral Thrall | Pounce, then winded 1.1 s | 0.66 s | 6.5 s | ×1.45 | 55% |
+| Miasma | Acid Lob (+ pool, ×0.28 a half second) | 0.95 s | 6.5 s | ×1.5 | 61% |
+| Skeleton | Reassemble at 50% HP unless the pile is struck within 3.2 s | — | once | — | 61% |
+| Mob Thug | Haymaker Charge, then dazed 1.2 s | 0.78 s | 7.5 s | ×1.6 | 55% |
+| Enforcer | Bulwark: 75% off hits to his front | — | always | — | 67% |
 
-Plain swings wind up for 0.36 s (hound) to 0.7 s (enforcer). The poise share is for the claws; the weapon's poise scales it (dagger 0.8, claws 1, sword 1.1, mace 1.7).
+Plain swings wind up for 0.36 s (hound) to 0.7 s (enforcer). The poise share is for the claws, after the global build rate (`STAGGER.build`, 0.82); the weapon's poise scales it (dagger 0.8, claws 1, sword 1.1, mace 1.7).
 
 The miasma is the only ranged one: it holds off at range and spits bile bolts down a gold lane, and backs away when the hero closes inside 2.3 m. Skeletons are the KayKit minion and stab on the clip's contact frame. Drops roll on every kill; an elite always drops, and drops double. The Haven's range dummies use the walker, thrall, and skeleton models with their armor fixed at 0, 12, and 30.
 

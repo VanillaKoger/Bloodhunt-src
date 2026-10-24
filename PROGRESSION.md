@@ -20,30 +20,30 @@ New endgame loops go on top of that.
 | --- | --- |
 | The Mob District opens | day 4 |
 | Kindred tier | day 9 |
-| The Black Docks open | day 12 |
-| The Night Market opens | day 28 |
-| The Blackwood opens | day 44 |
+| The Black Docks open | day 13 |
+| The Night Market opens | day 32 |
+| The Blackwood opens | day 48 |
 | Awakened tier | day 50 |
-| Hollow Graves open | day 64 |
-| Ashen Manor opens | day 78 |
-| Ascendent tier | day 135 |
-| Cathedral of Dawn opens | day 140 |
-| The Deep Catacombs open | day 184 |
-| Works maxed | day 188 |
-| The Crimson Spire opens | day 201 |
-| Rites maxed | day 218 |
-| Level 60 | day 225 |
-| Immortal tier | day 228 |
-| Powers maxed | day 241 |
-| **Every map cleared (all 90 marks)** | **day 249, about 8.2 months** |
-| All gear 50 | day 287 |
-| **Peak** | **day 290, about 9.5 months** |
+| Hollow Graves open | day 68 |
+| Ashen Manor opens | day 82 |
+| Ascendent tier | day 137 |
+| Cathedral of Dawn opens | day 144 |
+| The Deep Catacombs open | day 193 |
+| Works maxed | day 195 |
+| The Crimson Spire opens | day 210 |
+| Rites maxed | day 220 |
+| Level 60 | day 227 |
+| Immortal tier | day 231 |
+| Powers maxed | day 243 |
+| **Every map cleared (all 90 marks)** | **day 256, about 8.4 months** |
+| All gear 50 | day 289 |
+| **Peak** | **day 292, about 9.6 months** |
 
 | Sitting | Every map cleared | Peak |
 | --- | --- | --- |
-| 4 nights a day | day 277 (about 9.1 months) | day 323 (about 10.6 months) |
-| 4.5 nights a day | day 249 (about 8.2 months) | day 290 (about 9.5 months) |
-| 5 nights a day | day 226 (about 7.4 months) | day 263 (about 8.6 months) |
+| 4 nights a day | day 286 (about 9.4 months) | day 325 (about 10.7 months) |
+| 4.5 nights a day | day 256 (about 8.4 months) | day 292 (about 9.6 months) |
+| 5 nights a day | day 232 (about 7.6 months) | day 264 (about 8.7 months) |
 
 The fight model follows the combat rules in `src/game/combat.ts`: two enemies swing at a time and the rest circle, a swing comes every cooldown plus its wind-up, most plain swings land but most red abilities are stepped out of, a share of the hero's damage lands on staggered enemies, regen waits out the fight while lifesteal and Feeds heal, and deeper pods bring one more of their lead from tier 11 and two from tier 21.
 

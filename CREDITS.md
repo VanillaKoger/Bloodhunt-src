@@ -1,6 +1,6 @@
 # Credits
 
-The KayKit, Quaternius, and Kenney packs below are **CC0 1.0**. The Atomic Realm starter is free to use in a commercial game and is not CC0: it cannot be repackaged or resold. Nothing in this game is from a paid Extra, Plus, Source, or Pro tier. Free files only.
+The KayKit, Quaternius, Kenney, and Fertile Soil Productions packs below are **CC0 1.0**. The Atomic Realm packs are free to use in a commercial game with credit and are not CC0: they cannot be repackaged or resold. Nothing in this game is from a paid Extra, Plus, Source, or Pro tier. Free downloads only.
 
 ## KayKit — Kay Lousberg
 
@@ -55,6 +55,28 @@ Author: Atomic Realm — https://atomicrealm.itch.io
   Boarded and broken walls, a barrel, planks, a tire, and a crate, kitbashed onto the brick tenements.
   License: commercial use and edits are allowed. Repackaging, resale, and redistribution of the assets are not, however modified. Credit Atomic Realm with the link above. This game does not claim Atomic Realm's endorsement.
   `public/cc0/apocalypse/LICENSE.txt`
+
+## Fertile Soil Productions
+
+Author: Keith at Fertile Soil Productions — https://fertile-soil-productions.itch.io
+
+Map decorations, baked by `scripts/build_decor.py` into `public/decor/decor.glb` (flat colors, one mesh per prop; the game sizes and tints them per map). License: CC0 (public domain). Credit is not required and is given anyway.
+
+- Modular Village Pack (free) — barrels, crates, carts, hay, a well, boats
+  https://fertile-soil-productions.itch.io/modular-village-pack
+- Modular Terrain Pack (free) — oak, pine, and cedar trees, bushes, rocks and boulders, stumps, a lean-to, a wood pile, fences, ruined pillars, stalagmites, a chest, and grass, mushrooms, branches, cattails, and roses for ground scatter
+  https://fertile-soil-productions.itch.io/modular-terrain-pack
+
+## Atomic Realm — Modular Roads
+
+Author: Atomic Realm — https://atomicrealm.itch.io
+
+- Modular Roads, **FREE Base** download only (its models sit in a folder named `PLUS` inside that free zip; nothing was bought). Two street lamps, two road barriers, a traffic cone, and a traffic barrel, in the Mob District's back lots and club. Their palette texture is sampled into flat colors in `public/decor/decor.glb`.
+  https://atomicrealm.itch.io/modular-roads
+  License: free to use in a game with credit to Atomic Realm and a link to https://atomicrealm.itch.io/. The game ships these few models inside the running game; it is not a redistributed copy of the pack, and it does not suggest Atomic Realm endorses it.
+  `public/decor/CREDITS.txt`
+
+Not used: the Broken Vector Low Poly Tree and Rock packs (their license could not be confirmed, and their bundled readme is store purchase text), and the KayKit Forest Nature Pack (CC0, but its files were not received).
 
 ## Ground
 

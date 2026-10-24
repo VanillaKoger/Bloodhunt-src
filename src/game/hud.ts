@@ -278,6 +278,7 @@ export class Hud {
             <button id="btn-abandon" type="button" hidden>Abandon the night</button>
             <p class="install-tip" id="gear-note">${INSTALL_TIP}</p>
             <button id="btn-reset" type="button">Reset all progress (testing)</button>
+            <p class="art-credits">Art: KayKit (Kay Lousberg), Kenney, Quaternius, Fertile Soil Productions, and <a href="https://atomicrealm.itch.io/" target="_blank" rel="noopener">Atomic Realm</a>. Ground maps from ambientCG and Poly Haven. Full list in CREDITS.md.</p>
           </div>
         </div>
         <div id="offline" hidden>

@@ -134,6 +134,7 @@ import {
 } from './haven'
 import { buildYard, type YardHandle } from './yard'
 import { buildMapArt, type MapArtHandle } from './mapart'
+import type { DecorLib } from './decor'
 import { MAPS, MAP_IDS, ZONE_COUNT, inZone, nearestInZone, type MapDef, type PodDef, type ZoneDef } from './maps'
 import {
   AFFIX,
@@ -684,7 +685,7 @@ export class Game {
   private contactGeo!: THREE.CircleGeometry
   private contactMat!: THREE.MeshBasicMaterial
 
-  constructor(parent: HTMLElement, kenney: KenneyLib | null = null) {
+  constructor(parent: HTMLElement, kenney: KenneyLib | null = null, decor: DecorLib | null = null) {
     this.kenney = kenney
     this.hud = new Hud(parent)
     this.save = loadSave()
@@ -724,7 +725,7 @@ export class Game {
     this.world = buildWorld(this.scene, kenney ? (scene, blocks) => kenney.dress(scene, blocks) : undefined)
     this.yard = buildYard(this.scene, qualityLow())
     this.world.obstacles.push(...this.yard.obstacles)
-    this.mapArt = buildMapArt(this.scene)
+    this.mapArt = buildMapArt(this.scene, decor)
     this.world.obstacles.push(...this.mapArt.obstacles)
     for (const id of ['crypt', 'fountain'] as const) {
       const node = this.world.nodes[id]
@@ -2184,7 +2185,7 @@ export class Game {
     if (this.has(e, 'ironhide')) need *= AFFIX.ironhide.poise
     // Range dummies never fall, so they stagger against a nominal body instead of their bottomless HP.
     const body = e.dummy ? DUMMY_POISE_HP : e.maxHp
-    const gain = (amount / Math.max(1, body) / need) * mult * (e.dazeT > 0 ? STAGGER.dazed : 1)
+    const gain = (amount / Math.max(1, body) / need) * mult * STAGGER.build * (e.dazeT > 0 ? STAGGER.dazed : 1)
     e.poise = Math.min(1, e.poise + gain)
     e.poiseQuiet = 0
     if (e.poise < 1) return

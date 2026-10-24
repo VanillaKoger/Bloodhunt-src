@@ -120,12 +120,12 @@ const KILL_CAP = 85
 /** Share of the night spent hunting rather than walking out. */
 const HUNT_SHARE = 0.82
 /** Share of the hero's damage that lands on stunned (exposed) enemies. */
-const STUN_SHARE = 0.3
+const STUN_SHARE = 0.25
 /** Plain attacks a hunter eats rather than steps out of, and red abilities the same. */
 const SWING_HIT = 0.8
 const ABILITY_HIT = 0.35
 /** Share of kills made on a stunned enemy: each one feeds. */
-const FEED_SHARE = 0.45
+const FEED_SHARE = 0.37
 
 interface Fight {
   kills: number
