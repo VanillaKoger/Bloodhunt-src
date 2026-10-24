@@ -1,0 +1,8 @@
+Street maps are CC0.
+
+ambientCG Road012B — https://ambientcg.com/view?id=Road012B
+Poly Haven cobblestone_floor_08 — https://polyhaven.com/a/cobblestone_floor_08
+Poly Haven damaged_concrete_floor — https://polyhaven.com/a/damaged_concrete_floor
+Poly Haven brown_mud_leaves_01 — https://polyhaven.com/a/brown_mud_leaves_01
+
+Color maps are the 1K JPGs. Normal maps were resized to 512. Roughness, AO, and displacement were not shipped.

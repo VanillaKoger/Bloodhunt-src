@@ -1,0 +1,98 @@
+Kenney CC0 assets. The game loads these by default. Open with ?classic=1 for the procedural court.
+
+Used
+- Graveyard Kit 5.0 (CC0) — Kenney
+  https://kenney.nl/assets/graveyard-kit
+  Characters: character-zombie (plague walker, and the Rat King at boss scale), character-vampire (feral thrall), character-ghost (miasma).
+  The hero is the KayKit Adventurers mage and the ghoul is the KayKit skeleton minion. See CREDITS.md.
+  These graveyard rigs include idle / walk / sprint.
+  Props: fence, fence-damaged, iron-fence, lantern-candle, debris, debris-wood, rocks.
+  License: graveyard-kit/License.txt
+
+- Blocky Characters 2.0 (CC0) — Kenney
+  https://kenney.nl/assets/blocky-characters
+  character-h (mob thug, dark suit), character-b (enforcer), character-e (the Don).
+  Same node rig as the graveyard cast: idle / walk / sprint. Fedora and shades are small meshes parented to the head because the textures do not include a clear fedora on every suit.
+  License: blocky-characters/License.txt
+
+- Retro Urban Kit (CC0) — Kenney
+  https://kenney.nl/assets/retro-urban-kit
+  Brick and concrete facades, doors, windows, awnings, dumpsters, balcony ladders (fire escapes), street lights, pallets, brick piles, chain-bar fences, scaffolding, asphalt road tiles.
+  License: retro-urban-kit/License.txt
+
+- City Kit (Roads) (CC0) — Kenney
+  https://kenney.nl/assets/city-kit-roads
+  light-curved street lamp, construction-fence.
+  License: city-kit-roads/License.txt
+
+- Platformer Kit (CC0) — Kenney
+  https://kenney.nl/assets/platformer-kit
+  crate, barrel, ladder.
+  License: platformer-kit/License.txt
+
+- Car Kit (CC0) — Kenney
+  https://kenney.nl/assets/car-kit
+  sedan (slum beater and district curb), taxi.
+  License: car-kit/License.txt
+
+- Food Kit (CC0) — Kenney
+  https://kenney.nl/assets/food-kit
+  bag and crushed cans as trash, burger on the diner stoop.
+  License: food-kit/License.txt
+
+- Holiday Kit (CC0) — Kenney
+  https://kenney.nl/assets/holiday-kit
+  lights-colored along the diner awning. The diner cards stay in the held district dress. Alley neon is the Quaternius signs below.
+  License: holiday-kit/License.txt
+
+- Cube Pets 1.0 (CC0) — Kenney
+  https://kenney.nl/assets/cube-pets
+  animal-fox as alley wildlife.
+  License: cube-pets/License.txt
+
+- Mini Characters 1.0 (CC0) — Kenney
+  https://kenney.nl/assets/mini-characters
+  character-female-a..f and character-male-a..f as the Night Market's barkers and revelers and the Ashen Manor's servants. Only idle, walk, sprint, and attack-melee-right are kept; colormap embedded.
+  License: mini-characters/License.txt
+
+- Fantasy Town Kit 2.0 (CC0) — Kenney
+  https://kenney.nl/assets/fantasy-town-kit
+  lantern and cart only. Timber tenement faces from the earlier trial are no longer shown.
+  License: fantasy-town-kit/License.txt
+
+- City Kit Commercial 2.1 (CC0) — Kenney
+  https://kenney.nl/assets/city-kit-commercial
+  low-detail-building-a/b/c and low-detail-building-wide-a as small rooftop shacks, plus detail-awning and detail-overhang.
+  License: city-kit-commercial/License.txt
+
+- KayKit City Builder Bits 1.0 (CC0, free tier) — Kay Lousberg
+  https://kaylousberg.itch.io/city-builder-bits
+  building_A through building_H without bases as the Slum perimeter, plus dumpster, trash, box, bench, and fire hydrant.
+  License: public/cc0/city-bits/LICENSE.txt
+
+- Medieval Village MegaKit, Standard free tier (CC0) — Quaternius
+  https://quaternius.itch.io/medieval-village-megakit
+  Uneven brick and plaster wall modules, round-tile roof, chimney, plaster overhang, and exterior stairs. Base-color textures only, resized to 512. Normals and ORM maps are not shipped.
+  License: public/cc0/medieval/License_Standard.txt
+
+- Post-Apocalyptic World, FREE Starter only — Atomic Realm
+  https://atomicrealm.itch.io/post-apocalyptic-assets
+  Boarded door, hole wall, broken window, barrel, planks, tire, and crate. Not CC0: commercial use is allowed, repackaging and resale are not. See CREDITS.md.
+  License: public/cc0/apocalypse/LICENSE.txt
+
+- Downtown City MegaKit, standard tier (CC0) — Quaternius
+  https://quaternius.com/packs/downtowncitymegakit.html
+  Brick window, wooden door frame, door, AC unit, bollards, planter, and a drain. Textures are the pack base colors, resized to 512.
+  License: public/cc0/downtown/License_Standard.txt
+
+The mob district (blocky suits, wet street, diner cards) is still in the source. DISTRICT_OPEN is false, so the gate is not built and those enemies do not spawn. Level 1 is the Slums back alley.
+
+- Quaternius Cyberpunk Signs (CC0)
+  https://poly.pizza/m/rsZJjigt1X
+  Three small signs on the alley faces (Sign_1, Sign_Small_1, Sign_Small_2). Letter faces are tinted because the glTF has no embedded sign texture.
+  License: public/cc0/License-signs.txt
+
+Gaps
+- No dumpster-branded trash bag or true chain-link roll. Trash is a food-kit bag plus cans. Fences are Retro Urban wall-fence (bars) and City Kit construction-fence. Fire escapes are balcony ladders, a platformer ladder, and scaffolding, not a full switchback stair.
+- No suited human with a modeled fedora. Blocky Characters supply the suits and a walk cycle; the hat and glasses are extra meshes on that rig.
+- Animated Characters packs are still FBX without a walk clip, so they are not used.
